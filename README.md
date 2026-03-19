@@ -120,11 +120,15 @@ curl -H "X-API-Key: your-key" https://client-api-gateway.mike-geiger.workers.dev
 
 ## CI/CD
 
-Push to `master` with changes in `api/` auto-deploys the Worker via GitHub Actions.
+Deploys are handled by **Cloudflare's built-in Git integration** (not GitHub Actions).
 
-**GitHub Secrets required:**
-- `CLOUDFLARE_API_TOKEN` — Edit Cloudflare Workers token
-- `CLOUDFLARE_ACCOUNT_ID` — `120bccefd4f94c1fe5d83cfb997aaa5d`
+- Connected via: Workers & Pages → client-api-gateway → Settings → Builds
+- **Root directory:** `/api`
+- **Deploy command:** `npx wrangler deploy`
+- **Production branch:** `master`
+- Non-production branch builds: enabled
+
+Push to `master` and Cloudflare builds and deploys automatically. You can see build logs in the Cloudflare dashboard.
 
 ## What To Work On Next
 
