@@ -13,31 +13,31 @@ compatibility_date = "2024-12-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "client-api-gateway"
-database_id = ""                      # fill after `wrangler d1 create`
+database_id = "625fe274-4768-40f1-8083-2bc201eeb3fd"
 
 # KV Namespace — fast API key lookups
 [[kv_namespaces]]
 binding = "KV"
-id = ""                               # fill after `wrangler kv namespace create`
+id = "43692b54b0074c4692b279977e1a0aca"
 
 # R2 Bucket — raw payload storage
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "client-api-gateway-payloads"
 
-# Queue — async retries and callbacks
-[[queues.producers]]
-binding = "RETRY_QUEUE"
-queue = "client-api-gateway-retries"
-
-[[queues.consumers]]
-queue = "client-api-gateway-retries"
-max_batch_size = 10
-max_retries = 3
+# Queue — uncomment when Queues is enabled on your Cloudflare plan
+# [[queues.producers]]
+# binding = "RETRY_QUEUE"
+# queue = "client-api-gateway-retries"
+#
+# [[queues.consumers]]
+# queue = "client-api-gateway-retries"
+# max_batch_size = 10
+# max_retries = 3
 
 # Cron Triggers — tracking sync, inventory refresh
 [triggers]
 crons = [
-  "*/15 * * * *",   # every 15 min — tracking status sync
-  "0 * * * *",      # every hour — inventory cache refresh
+  "*/15 * * * *",
+  "0 * * * *",
 ]
