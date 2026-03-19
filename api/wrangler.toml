@@ -1,0 +1,43 @@
+name = "client-api-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Custom domain — update when ready
+# routes = [
+#   { pattern = "api.yourcompany.com/*", zone_name = "yourcompany.com" }
+# ]
+
+# ── Bindings ──────────────────────────────────────────
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "client-api-gateway"
+database_id = ""                      # fill after `wrangler d1 create`
+
+# KV Namespace — fast API key lookups
+[[kv_namespaces]]
+binding = "KV"
+id = ""                               # fill after `wrangler kv namespace create`
+
+# R2 Bucket — raw payload storage
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "client-api-gateway-payloads"
+
+# Queue — async retries and callbacks
+[[queues.producers]]
+binding = "RETRY_QUEUE"
+queue = "client-api-gateway-retries"
+
+[[queues.consumers]]
+queue = "client-api-gateway-retries"
+max_batch_size = 10
+max_retries = 3
+
+# Cron Triggers — tracking sync, inventory refresh
+[triggers]
+crons = [
+  "*/15 * * * *",   # every 15 min — tracking status sync
+  "0 * * * *",      # every hour — inventory cache refresh
+]
