@@ -10,11 +10,11 @@ Multi-tenant API gateway that sits between external clients and our Logiwa IO WM
 Client → Cloudflare Worker (auth, validate, route) → Logiwa IO API
               ↕
          D1 (database)
-         KV (API key lookups)
+         KV (API key lookups + rate limiting)
          R2 (payload storage)
          Queues (retries — pending enablement)
 
-Portal (Cloudflare Pages) → D1 → view/manage everything
+Portal (Cloudflare Pages) → D1 → create clients, manage keys, view orders/errors
 ```
 
 Everything is multi-tenant. Each client (business unit) gets their own tenant config, API keys, and isolated data. Same codebase serves all of them.
@@ -27,15 +27,20 @@ Everything is multi-tenant. Each client (business unit) gets their own tenant co
 │   │   ├── index.ts              ← Entry point: fetch, scheduled, queue handlers
 │   │   ├── auth.ts               ← API key validation (SHA-256 hash → KV lookup)
 │   │   ├── routes/
-│   │   │   ├── router.ts         ← Request routing + auth gate + logging
-│   │   │   ├── orders.ts         ← POST /v1/orders, GET /v1/orders/:id (stubs)
-│   │   │   ├── tracking.ts       ← GET /v1/orders/:id/tracking (stub)
-│   │   │   └── inventory.ts      ← POST /v1/inventory/query (stub)
+│   │   │   ├── router.ts         ← Request routing, auth gate, rate limiting, CORS, logging
+│   │   │   ├── orders.ts         ← POST /v1/orders, GET /v1/orders/:id
+│   │   │   ├── tracking.ts       ← GET /v1/orders/:id/tracking
+│   │   │   └── inventory.ts      ← POST /v1/inventory/query
 │   │   └── lib/
-│   │       ├── logiwa.ts         ← Logiwa IO API client (placeholder)
+│   │       ├── logiwa.ts         ← Logiwa IO API client (auth, orders, inventory, webhooks)
+│   │       ├── validate.ts       ← Zod schemas for request body validation
+│   │       ├── errors.ts         ← Standardized API error responses
+│   │       ├── rate-limit.ts     ← Per-tenant sliding-window rate limiter via KV
 │   │       ├── logger.ts         ← Request + error logging to D1
-│   │       ├── scheduled.ts      ← Cron trigger handlers (placeholder)
-│   │       └── queue.ts          ← Retry queue consumer (placeholder)
+│   │       ├── scheduled.ts      ← Cron: tracking sync (15min), inventory refresh (hourly)
+│   │       └── queue.ts          ← Retry queue consumer for failed Logiwa calls
+│   ├── scripts/
+│   │   └── admin.ts              ← CLI for tenant/key management (create, list, revoke)
 │   ├── wrangler.toml             ← Cloudflare bindings (D1, KV, R2)
 │   ├── package.json
 │   └── tsconfig.json
@@ -44,8 +49,8 @@ Everything is multi-tenant. Each client (business unit) gets their own tenant co
 │   └── migrations/
 │       └── 0001_init.sql         ← Schema: tenants, api_keys, orders, error_log, inventory_cache, request_log
 ├── docs/
-│   ├── api-spec.md               ← Client-facing API documentation (skeleton)
-│   └── logiwa-api-spec.txt       ← Logiwa IO v3.1 OpenAPI spec (full reference for Phase 3)
+│   ├── api-spec.md               ← Client-facing API documentation
+│   └── logiwa-api-spec.txt       ← Logiwa IO v3.1 OpenAPI spec (full reference)
 └── .gitignore
 ```
 
@@ -61,14 +66,14 @@ Everything is multi-tenant. Each client (business unit) gets their own tenant co
 ## Current State
 
 - **Phase 0 (Scaffolding):** DONE — repo, Worker, D1 schema, CI/CD
-- **Phase 1 (Seed Tooling):** NOT STARTED — need admin scripts to create tenants + API keys
-- **Phase 2 (Auth & Routing):** NOT STARTED — rate limiting, input validation (zod), error standardization
-- **Phase 3 (Logiwa Integration):** NOT STARTED — waiting on Logiwa IO API spec
-- **Phase 4 (Async Work):** NOT STARTED — queues, retries, cron jobs for tracking/inventory sync
-- **Phase 5 (Control Portal):** NOT STARTED — Pages app for viewing orders, errors, managing tenants
+- **Phase 1 (Seed Tooling):** DONE — CLI to create tenants, generate/revoke/list API keys
+- **Phase 2 (Auth & Routing):** DONE — rate limiting (KV), zod validation, standardized errors, CORS
+- **Phase 3 (Logiwa Integration):** DONE — full API client (auth tokens, orders, inventory, webhooks), routes wired to Logiwa
+- **Phase 4 (Async Work):** DONE — cron tracking sync, inventory cache refresh, retry queue consumer
+- **Phase 5 (Control Portal):** NOT STARTED — Pages app for managing clients, keys, viewing orders/errors
 - **Phase 6 (Harden & Ship):** NOT STARTED — encryption at rest, custom domains, alerting
 
-## Getting Started (New Developer)
+## Getting Started
 
 ### Prerequisites
 - Node.js 20+
@@ -80,41 +85,88 @@ Everything is multi-tenant. Each client (business unit) gets their own tenant co
 ### Setup
 
 ```bash
-# Clone the repo
 gh repo clone KSPTechnologies/client-api-gateway
 cd client-api-gateway/api
-
-# Install dependencies
 npm install
-
-# Auth with Cloudflare
 wrangler login
-
-# Run locally
-wrangler dev
-
-# Deploy (or just push to master — CI/CD handles it)
-wrangler deploy
 ```
 
-### Running D1 Migrations
+### Admin CLI
+
+All tenant and key management is done via the admin CLI at `api/scripts/admin.ts`:
 
 ```bash
-# Remote (production)
-wrangler d1 execute client-api-gateway --remote --file=../db/migrations/0001_init.sql
+# Create a tenant
+npm run admin -- create-tenant --name "Acme Corp" --logiwa-url "https://myapi.logiwa.com" --logiwa-user "user@acme.com" --logiwa-pass "secret"
 
-# Local dev
-wrangler d1 execute client-api-gateway --local --file=../db/migrations/0001_init.sql
+# Generate an API key for a tenant
+npm run admin -- generate-key --tenant-id <id> --label "production"
+
+# List all tenants
+npm run admin -- list-tenants
+
+# List keys for a tenant
+npm run admin -- list-keys --tenant-id <id>
+
+# Revoke an API key
+npm run admin -- revoke-key --key-id <id>
 ```
 
-### Testing the API
+### D1 Migrations
 
 ```bash
-# Health check (no auth)
-curl https://client-api-gateway.mike-geiger.workers.dev/v1/health
+npm run db:migrate:remote
+```
 
-# Authenticated request (once you have a tenant + key seeded)
-curl -H "X-API-Key: your-key" https://client-api-gateway.mike-geiger.workers.dev/v1/orders
+### Deploy
+
+Push to `master` and Cloudflare builds and deploys automatically. Or deploy manually:
+
+```bash
+npm run deploy
+```
+
+## API Endpoints
+
+| Method | Path | Auth | Status |
+|--------|------|------|--------|
+| GET | `/v1/health` | No | Working |
+| POST | `/v1/orders` | Yes | Working — validates with zod, stores in D1/R2, forwards to Logiwa |
+| GET | `/v1/orders/:id` | Yes | Working — returns order from D1 |
+| GET | `/v1/orders/:id/tracking` | Yes | Working — fetches live tracking from Logiwa |
+| POST | `/v1/inventory/query` | Yes | Working — checks D1 cache, falls back to live Logiwa query |
+
+### Error Response Format
+
+All errors return a consistent structure:
+
+```json
+{
+  "error": {
+    "message": "Description of what went wrong",
+    "code": "ERROR_CODE"
+  }
+}
+```
+
+| Code | HTTP Status | Meaning |
+|------|-------------|---------|
+| `UNAUTHORIZED` | 401 | Invalid or missing API key |
+| `BAD_REQUEST` | 400 | Validation failed or malformed request |
+| `NOT_FOUND` | 404 | Resource or route not found |
+| `METHOD_NOT_ALLOWED` | 405 | Wrong HTTP method for this endpoint |
+| `RATE_LIMITED` | 429 | Exceeded per-tenant rate limit |
+| `INTERNAL_ERROR` | 500 | Unexpected server error |
+| `LOGIWA_AUTH_FAILED` | 502 | Could not authenticate with Logiwa |
+| `LOGIWA_API_ERROR` | 502 | Logiwa API returned an error |
+
+### Rate Limiting
+
+Each API key has a configurable rate limit (default: 60 requests/minute). Rate limit info is returned in response headers:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 58
 ```
 
 ## CI/CD
@@ -127,36 +179,74 @@ Deploys are handled by **Cloudflare's built-in Git integration** (not GitHub Act
 - **Production branch:** `master`
 - Non-production branch builds: enabled
 
-Push to `master` and Cloudflare builds and deploys automatically. You can see build logs in the Cloudflare dashboard.
+Push to `master` and Cloudflare builds and deploys automatically.
 
 ## What To Work On Next
 
-### Priority 1: Admin / Seed Tooling
-There's currently no way to create tenants or API keys without raw SQL. Build:
-- A script or CLI that creates a tenant in D1 (name, Logiwa creds, callback URL)
-- A script that generates an API key for a tenant, hashes it, stores in both D1 and KV
-- A script to revoke/list keys
+### Priority 1: Control Portal (Phase 5)
 
-This unblocks all testing of the auth and route logic.
+Build a Cloudflare Pages app in `portal/` that provides a web UI for managing the gateway. Gate it with Cloudflare Access (SSO).
 
-### Priority 2: Input Validation
-Add `zod` for request body validation on POST endpoints. Reject bad data before it gets anywhere near Logiwa.
+#### Client Creation Flow
 
-### Priority 3: Logiwa Client
-The Logiwa IO API spec is at `docs/logiwa-api-spec.txt` (v3.1 OpenAPI, covers auth, webhooks, shipment orders, products, inventory, purchase orders). Build out `api/src/lib/logiwa.ts` with real API calls and wire the route stubs to use it. Key endpoints: auth token flow, shipment order create/status, inventory queries, webhook subscriptions for tracking push-back.
+The portal's main workflow is creating and configuring clients:
 
-### Priority 4: Portal
-Scaffold a Cloudflare Pages app in `portal/`. Gate it with Cloudflare Access (SSO). Start with the error queue view — that's the highest operational value.
+1. **Create Client form** — Admin fills in:
+   - **Client Name** (e.g. "Acme Corp")
+   - **Base URL** for the client's endpoints (e.g. `acme.com`)
+   - **Logiwa credentials** (API URL, username, password, client identifier)
+   - **Callback URL** (optional — for tracking push notifications)
 
-## API Endpoints
+2. **Select endpoint functions** — Checkboxes for which capabilities the client needs:
+   - [ ] Create Order (`POST /v1/orders`)
+   - [ ] Get Order Status (`GET /v1/orders/:id`)
+   - [ ] Get Tracking (`GET /v1/orders/:id/tracking`)
+   - [ ] Query Inventory (`POST /v1/inventory/query`)
+   - [ ] Create Purchase Order (future)
+   - [ ] Webhook Subscriptions (future)
 
-| Method | Path | Auth | Status |
-|--------|------|------|--------|
-| GET | `/v1/health` | No | Working |
-| POST | `/v1/orders` | Yes | Stub |
-| GET | `/v1/orders/:id` | Yes | Stub |
-| GET | `/v1/orders/:id/tracking` | Yes | Stub |
-| POST | `/v1/inventory/query` | Yes | Stub |
+3. **System auto-generates endpoints** — Based on selections, the portal displays the client's specific endpoints:
+   - Example: Client "Test" with base URL `test.com`, selected "Create Order" and "Create PO"
+   - System shows: `test.com/create-order`, `test.com/create-po`
+   - These map to the gateway's internal routes which proxy to Logiwa
+
+4. **Generate API Key** — Separate section where you:
+   - Select a client from dropdown
+   - Add a label (e.g. "production", "staging")
+   - Click generate — system creates the key, hashes it, stores in D1 + KV
+   - Displays the raw key once (cannot be retrieved later)
+
+The portal's backend calls the same functions already built and tested in the admin CLI (`create-tenant`, `generate-key`, etc.) — it's a UI wrapper around the existing tooling.
+
+#### Additional Portal Views
+- **Client list** — View all tenants, their status, active key count
+- **API key management** — List/revoke keys per client
+- **Order log** — View orders by client, status, date range
+- **Error queue** — View unresolved errors, retry failed requests
+- **Request log** — Recent API activity per client
+
+### Priority 2: Schema Update for Endpoint Configuration
+
+Add a `tenant_endpoints` table to D1 to store which endpoints each client has enabled:
+
+```sql
+CREATE TABLE IF NOT EXISTS tenant_endpoints (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  endpoint_type TEXT NOT NULL,  -- 'create_order', 'get_order', 'tracking', 'inventory', etc.
+  enabled INTEGER NOT NULL DEFAULT 1,
+  custom_path TEXT,             -- optional custom path override
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, endpoint_type)
+);
+```
+
+Update the router to check `tenant_endpoints` before allowing a request through — if a client doesn't have "create_order" enabled, `POST /v1/orders` returns 403.
+
+### Priority 3: Harden & Ship (Phase 6)
+- Encrypt Logiwa credentials at rest in D1
+- Custom domain setup (e.g. `api.ksp3pl.com`)
+- Alerting on error rate spikes
+- Enable Queues for retry (requires Workers Paid plan)
 
 ## D1 Schema
 
