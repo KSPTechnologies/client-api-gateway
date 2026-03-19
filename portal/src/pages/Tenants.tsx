@@ -30,19 +30,12 @@ const ENDPOINT_OPTIONS = [
 interface CreateForm {
   name: string;
   base_url: string;
-  logiwa_api_url: string;
-  logiwa_username: string;
-  logiwa_password: string;
-  logiwa_client_identifier: string;
-  logiwa_warehouse_identifier: string;
   callback_url: string;
   endpoints: string[];
 }
 
 const emptyForm: CreateForm = {
-  name: '', base_url: '', logiwa_api_url: 'https://myapi.logiwa.com', logiwa_username: '',
-  logiwa_password: '', logiwa_client_identifier: '', logiwa_warehouse_identifier: '',
-  callback_url: '', endpoints: [],
+  name: '', base_url: '', callback_url: '', endpoints: [],
 };
 
 export default function Tenants() {
@@ -166,35 +159,9 @@ export default function Tenants() {
               <label>Base URL</label>
               <input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="e.g. acme.com" />
             </div>
-
-            <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Logiwa Credentials</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="form-group">
-                  <label>API URL</label>
-                  <input value={form.logiwa_api_url} onChange={(e) => setForm({ ...form, logiwa_api_url: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label>Username (email)</label>
-                  <input value={form.logiwa_username} onChange={(e) => setForm({ ...form, logiwa_username: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label>Password</label>
-                  <input type="password" value={form.logiwa_password} onChange={(e) => setForm({ ...form, logiwa_password: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label>Client Identifier (optional)</label>
-                  <input value={form.logiwa_client_identifier} onChange={(e) => setForm({ ...form, logiwa_client_identifier: e.target.value })} placeholder="GUID" />
-                </div>
-                <div className="form-group">
-                  <label>Warehouse Identifier (optional)</label>
-                  <input value={form.logiwa_warehouse_identifier} onChange={(e) => setForm({ ...form, logiwa_warehouse_identifier: e.target.value })} placeholder="GUID" />
-                </div>
-                <div className="form-group">
-                  <label>Callback URL (optional)</label>
-                  <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
-                </div>
-              </div>
+            <div className="form-group">
+              <label>Callback URL (optional — for tracking push notifications)</label>
+              <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
             </div>
 
             <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
@@ -243,7 +210,7 @@ export default function Tenants() {
 
             <div className="modal-actions">
               <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleCreate} disabled={!form.name || !form.logiwa_username || !form.logiwa_password}>Create Client</button>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={!form.name}>Create Client</button>
             </div>
           </div>
         </div>

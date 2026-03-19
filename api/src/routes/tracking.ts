@@ -9,7 +9,6 @@ export async function handleTracking(
   tenant: TenantContext,
   path: string
 ): Promise<Response> {
-  // GET /v1/orders/:id/tracking
   const match = path.match(/^\/v1\/orders\/([^/]+)\/tracking$/);
   if (!match) {
     throw notFound();
@@ -21,7 +20,6 @@ export async function handleTracking(
 
   const orderId = match[1];
 
-  // Look up order to verify it belongs to this tenant
   const order = await env.DB.prepare(
     `SELECT id, logiwa_order_id, status FROM orders WHERE id = ? AND tenant_id = ?`
   )
@@ -32,17 +30,16 @@ export async function handleTracking(
     throw notFound(`Order ${orderId} not found`);
   }
 
-  // Fetch live tracking from Logiwa if we have a Logiwa order ID
   let tracking: any = null;
   let carrier: string | null = null;
   let trackingNumber: string | null = null;
   let estimatedDelivery: string | null = null;
 
   if (order.logiwa_order_id) {
-    const creds = await getLogiwaCredentials(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env);
     if (creds) {
       try {
-        const logiwaOrder = await getShipmentOrder(creds, env, order.logiwa_order_id as string);
+        const logiwaOrder = await getShipmentOrder(creds, order.logiwa_order_id as string);
         if (logiwaOrder) {
           carrier = logiwaOrder.carrierName || null;
           trackingNumber = logiwaOrder.trackingNumbers?.[0] || null;
@@ -57,7 +54,6 @@ export async function handleTracking(
         }
       } catch (err) {
         console.error('Logiwa tracking fetch failed:', err);
-        // Return what we have from D1
       }
     }
   }

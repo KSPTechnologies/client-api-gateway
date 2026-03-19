@@ -10,7 +10,6 @@ export async function handleInventory(
   tenant: TenantContext,
   path: string
 ): Promise<Response> {
-  // POST /v1/inventory/query — query inventory by SKU(s)
   if (request.method === 'POST' && path === '/v1/inventory/query') {
     let body: unknown;
     try {
@@ -42,10 +41,10 @@ export async function handleInventory(
 
     // For cache misses, query Logiwa live and backfill cache
     if (missedSkus.length > 0) {
-      const creds = await getLogiwaCredentials(env, tenant.tenantId);
+      const creds = getLogiwaCredentials(env);
       if (creds) {
         try {
-          const liveItems = await queryInventory(creds, env, missedSkus);
+          const liveItems = await queryInventory(creds, missedSkus);
           for (const item of liveItems) {
             found.set(item.productSku, {
               sku: item.productSku,
@@ -53,7 +52,6 @@ export async function handleInventory(
               last_synced_at: new Date().toISOString(),
             });
 
-            // Upsert into cache
             await env.DB.prepare(
               `INSERT INTO inventory_cache (tenant_id, sku, quantity, last_synced_at)
                VALUES (?, ?, ?, datetime('now'))
@@ -64,7 +62,6 @@ export async function handleInventory(
           }
         } catch (err) {
           console.error('Logiwa inventory query failed:', err);
-          // Return cached data + nulls for misses
         }
       }
     }

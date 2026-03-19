@@ -3,41 +3,35 @@ import { ApiError } from './errors';
 
 /**
  * Logiwa IO API client.
- * Handles auth token management and all Logiwa API interactions.
+ * Credentials are set once as Worker environment variables — not per-tenant.
+ * All tenants share the same Logiwa account (we are the 3PL).
  */
 
 export interface LogiwaCredentials {
-  apiUrl: string;       // e.g. https://myapi.logiwa.com
-  username: string;     // email
+  apiUrl: string;
+  username: string;
   password: string;
-  clientIdentifier?: string;  // Logiwa client GUID (tenant in Logiwa's system)
+  clientIdentifier?: string;
   warehouseIdentifier?: string;
 }
 
 export interface LogiwaToken {
   token: string;
-  expiresAt: number;  // timestamp
+  expiresAt: number;
 }
 
 // ── Credential Fetching ──────────────────────────────
 
-export async function getLogiwaCredentials(
-  env: Env,
-  tenantId: string
-): Promise<LogiwaCredentials | null> {
-  const result = await env.DB.prepare(
-    'SELECT logiwa_api_url, logiwa_credentials FROM tenants WHERE id = ? AND active = 1'
-  )
-    .bind(tenantId)
-    .first();
-
-  if (!result) return null;
-
-  // TODO: decrypt credentials when encryption-at-rest is implemented
-  const creds = JSON.parse(result.logiwa_credentials as string);
+export function getLogiwaCredentials(env: Env): LogiwaCredentials | null {
+  if (!env.LOGIWA_API_URL || !env.LOGIWA_USERNAME || !env.LOGIWA_PASSWORD) {
+    return null;
+  }
   return {
-    apiUrl: result.logiwa_api_url as string,
-    ...creds,
+    apiUrl: env.LOGIWA_API_URL,
+    username: env.LOGIWA_USERNAME,
+    password: env.LOGIWA_PASSWORD,
+    clientIdentifier: env.LOGIWA_CLIENT_IDENTIFIER,
+    warehouseIdentifier: env.LOGIWA_WAREHOUSE_IDENTIFIER,
   };
 }
 
@@ -45,16 +39,14 @@ export async function getLogiwaCredentials(
 
 const tokenCache = new Map<string, LogiwaToken>();
 
-async function getToken(creds: LogiwaCredentials, env: Env): Promise<string> {
+async function getToken(creds: LogiwaCredentials): Promise<string> {
   const cacheKey = `${creds.apiUrl}:${creds.username}`;
   const cached = tokenCache.get(cacheKey);
 
-  // Return cached token if it has >60s remaining
   if (cached && cached.expiresAt > Date.now() + 60_000) {
     return cached.token;
   }
 
-  // Fetch new token
   const res = await fetch(`${creds.apiUrl}/v3.1/Authorize/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -72,7 +64,7 @@ async function getToken(creds: LogiwaCredentials, env: Env): Promise<string> {
   const data = (await res.json()) as { token: string };
   const token: LogiwaToken = {
     token: data.token,
-    expiresAt: Date.now() + 55 * 60_000, // assume ~1hr token, refresh at 55min
+    expiresAt: Date.now() + 55 * 60_000,
   };
   tokenCache.set(cacheKey, token);
   return token.token;
@@ -82,12 +74,11 @@ async function getToken(creds: LogiwaCredentials, env: Env): Promise<string> {
 
 async function logiwaFetch(
   creds: LogiwaCredentials,
-  env: Env,
   method: string,
   path: string,
   body?: unknown
 ): Promise<any> {
-  const token = await getToken(creds, env);
+  const token = await getToken(creds);
   const url = `${creds.apiUrl}${path}`;
 
   const res = await fetch(url, {
@@ -99,10 +90,9 @@ async function logiwaFetch(
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // Handle 401 by retrying with a fresh token once
   if (res.status === 401) {
     tokenCache.delete(`${creds.apiUrl}:${creds.username}`);
-    const freshToken = await getToken(creds, env);
+    const freshToken = await getToken(creds);
     const retry = await fetch(url, {
       method,
       headers: {
@@ -155,7 +145,6 @@ export interface CreateShipmentOrderInput {
 
 export async function createShipmentOrder(
   creds: LogiwaCredentials,
-  env: Env,
   order: CreateShipmentOrderInput
 ): Promise<{ identifier: string; status: number; message: string }> {
   const payload = {
@@ -165,7 +154,7 @@ export async function createShipmentOrder(
     useSameAddress: true,
   };
 
-  const result = await logiwaFetch(creds, env, 'POST', '/v3.1/ShipmentOrder/create', payload);
+  const result = await logiwaFetch(creds, 'POST', '/v3.1/ShipmentOrder/create', payload);
   return {
     identifier: result.data,
     status: result.status,
@@ -175,15 +164,13 @@ export async function createShipmentOrder(
 
 export async function getShipmentOrder(
   creds: LogiwaCredentials,
-  env: Env,
   identifier: string
 ): Promise<any> {
-  return logiwaFetch(creds, env, 'GET', `/v3.1/ShipmentOrder/${identifier}`);
+  return logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/${identifier}`);
 }
 
 export async function listShipmentOrders(
   creds: LogiwaCredentials,
-  env: Env,
   index: number,
   size: number,
   filters?: Record<string, string>
@@ -193,12 +180,11 @@ export async function listShipmentOrders(
     const params = new URLSearchParams(filters);
     path += `?${params.toString()}`;
   }
-  return logiwaFetch(creds, env, 'GET', path);
+  return logiwaFetch(creds, 'GET', path);
 }
 
 export async function cancelShipmentOrder(
   creds: LogiwaCredentials,
-  env: Env,
   identifier: string,
   reason?: string
 ): Promise<boolean> {
@@ -206,7 +192,7 @@ export async function cancelShipmentOrder(
     clientIdentifier: creds.clientIdentifier,
     cancelReasonName: reason || 'Cancelled via API gateway',
   };
-  const result = await logiwaFetch(creds, env, 'POST', `/v3.1/ShipmentOrder/cancel/${identifier}`, payload);
+  const result = await logiwaFetch(creds, 'POST', `/v3.1/ShipmentOrder/cancel/${identifier}`, payload);
   return result?.value === true;
 }
 
@@ -228,7 +214,6 @@ export interface InventoryItem {
 
 export async function queryInventory(
   creds: LogiwaCredentials,
-  env: Env,
   skus: string[],
   pageSize = 200
 ): Promise<InventoryItem[]> {
@@ -241,7 +226,7 @@ export async function queryInventory(
     }
     const params = new URLSearchParams(filters);
     const path = `/v3.1/Inventory/list/i/0/s/${pageSize}?${params.toString()}`;
-    const result = await logiwaFetch(creds, env, 'GET', path);
+    const result = await logiwaFetch(creds, 'GET', path);
 
     if (result?.data) {
       allItems.push(...result.data);
@@ -255,7 +240,6 @@ export async function queryInventory(
 
 export async function subscribeWebhook(
   creds: LogiwaCredentials,
-  env: Env,
   topic: string,
   callbackUrl: string
 ): Promise<string> {
@@ -265,23 +249,21 @@ export async function subscribeWebhook(
     clientIdentifier: creds.clientIdentifier,
     ignoreClient: false,
   };
-  const result = await logiwaFetch(creds, env, 'POST', '/v3.1/Webhook/create', payload);
-  return result.data; // webhook subscription ID
+  const result = await logiwaFetch(creds, 'POST', '/v3.1/Webhook/create', payload);
+  return result.data;
 }
 
 export async function listWebhooks(
-  creds: LogiwaCredentials,
-  env: Env
+  creds: LogiwaCredentials
 ): Promise<any[]> {
-  const result = await logiwaFetch(creds, env, 'GET', '/v3.1/Webhook/list');
+  const result = await logiwaFetch(creds, 'GET', '/v3.1/Webhook/list');
   return result?.data || [];
 }
 
 export async function deleteWebhook(
   creds: LogiwaCredentials,
-  env: Env,
   subscriptionId: string
 ): Promise<boolean> {
-  const result = await logiwaFetch(creds, env, 'DELETE', `/v3.1/Webhook/${subscriptionId}`);
+  const result = await logiwaFetch(creds, 'DELETE', `/v3.1/Webhook/${subscriptionId}`);
   return result?.value === true;
 }

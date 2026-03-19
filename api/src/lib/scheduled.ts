@@ -20,12 +20,10 @@ export async function handleScheduled(
   }
 }
 
-/**
- * Poll Logiwa for tracking updates on orders in 'sent' status.
- * If tracking info is available, update order status and push to callback URL.
- */
 async function syncTracking(env: Env): Promise<void> {
-  // Get all orders that are pending tracking (status = 'sent')
+  const creds = getLogiwaCredentials(env);
+  if (!creds) return;
+
   const { results: orders } = await env.DB.prepare(
     `SELECT o.id, o.tenant_id, o.logiwa_order_id, o.external_order_id, t.callback_url
      FROM orders o
@@ -37,74 +35,58 @@ async function syncTracking(env: Env): Promise<void> {
 
   if (!orders || orders.length === 0) return;
 
-  // Group by tenant to reuse credentials
-  const byTenant = new Map<string, any[]>();
   for (const order of orders) {
-    const tid = order.tenant_id as string;
-    if (!byTenant.has(tid)) byTenant.set(tid, []);
-    byTenant.get(tid)!.push(order);
-  }
+    try {
+      const logiwaOrder = await getShipmentOrder(creds, order.logiwa_order_id as string);
+      if (!logiwaOrder) continue;
 
-  for (const [tenantId, tenantOrders] of byTenant) {
-    const creds = await getLogiwaCredentials(env, tenantId);
-    if (!creds) continue;
+      const logiwaStatus = logiwaOrder.shipmentOrderStatusName?.toLowerCase();
+      const trackingNumbers = logiwaOrder.trackingNumbers || [];
 
-    for (const order of tenantOrders) {
-      try {
-        const logiwaOrder = await getShipmentOrder(creds, env, order.logiwa_order_id as string);
-        if (!logiwaOrder) continue;
+      let newStatus: string | null = null;
+      if (logiwaStatus === 'shipped' || trackingNumbers.length > 0) {
+        newStatus = 'fulfilled';
+      } else if (logiwaStatus === 'cancelled') {
+        newStatus = 'closed';
+      }
 
-        const logiwaStatus = logiwaOrder.shipmentOrderStatusName?.toLowerCase();
-        const trackingNumbers = logiwaOrder.trackingNumbers || [];
+      if (newStatus) {
+        await env.DB.prepare(
+          `UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`
+        )
+          .bind(newStatus, order.id)
+          .run();
 
-        // Map Logiwa statuses to our statuses
-        let newStatus: string | null = null;
-        if (logiwaStatus === 'shipped' || trackingNumbers.length > 0) {
-          newStatus = 'fulfilled';
-        } else if (logiwaStatus === 'cancelled') {
-          newStatus = 'closed';
-        }
-
-        if (newStatus) {
-          await env.DB.prepare(
-            `UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`
-          )
-            .bind(newStatus, order.id)
-            .run();
-
-          // Push tracking to callback URL if configured
-          const callbackUrl = order.callback_url as string;
-          if (callbackUrl && trackingNumbers.length > 0) {
-            try {
-              await fetch(callbackUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  event: 'tracking_update',
-                  orderId: order.id,
-                  externalOrderId: order.external_order_id,
-                  status: newStatus,
-                  carrier: logiwaOrder.carrierName,
-                  trackingNumbers,
-                }),
-              });
-            } catch (err) {
-              console.error(`Callback failed for order ${order.id}:`, err);
-            }
+        const callbackUrl = order.callback_url as string;
+        if (callbackUrl && trackingNumbers.length > 0) {
+          try {
+            await fetch(callbackUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event: 'tracking_update',
+                orderId: order.id,
+                externalOrderId: order.external_order_id,
+                status: newStatus,
+                carrier: logiwaOrder.carrierName,
+                trackingNumbers,
+              }),
+            });
+          } catch (err) {
+            console.error(`Callback failed for order ${order.id}:`, err);
           }
         }
-      } catch (err) {
-        console.error(`Tracking sync failed for order ${order.id}:`, err);
       }
+    } catch (err) {
+      console.error(`Tracking sync failed for order ${order.id}:`, err);
     }
   }
 }
 
-/**
- * Refresh inventory cache for all active tenants.
- * Pulls all inventory from Logiwa and upserts into D1 cache.
- */
 async function refreshInventoryCache(env: Env): Promise<void> {
+  const creds = getLogiwaCredentials(env);
+  if (!creds) return;
+
   const { results: tenants } = await env.DB.prepare(
     `SELECT id FROM tenants WHERE active = 1`
   ).all();
@@ -113,11 +95,8 @@ async function refreshInventoryCache(env: Env): Promise<void> {
 
   for (const tenant of tenants) {
     const tenantId = tenant.id as string;
-    const creds = await getLogiwaCredentials(env, tenantId);
-    if (!creds) continue;
 
     try {
-      // Get all cached SKUs for this tenant to know what to refresh
       const { results: cachedSkus } = await env.DB.prepare(
         `SELECT sku FROM inventory_cache WHERE tenant_id = ?`
       )
@@ -127,7 +106,7 @@ async function refreshInventoryCache(env: Env): Promise<void> {
       if (!cachedSkus || cachedSkus.length === 0) continue;
 
       const skus = cachedSkus.map((r: any) => r.sku as string);
-      const items = await queryInventory(creds, env, skus);
+      const items = await queryInventory(creds, skus);
 
       for (const item of items) {
         await env.DB.prepare(

@@ -1,8 +1,8 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { createOrderSchema } from '../lib/validate';
-import { badRequest, methodNotAllowed, notFound, internal } from '../lib/errors';
-import { getLogiwaCredentials, createShipmentOrder, getShipmentOrder } from '../lib/logiwa';
+import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
+import { getLogiwaCredentials, createShipmentOrder } from '../lib/logiwa';
 
 export async function handleOrders(
   request: Request,
@@ -46,15 +46,14 @@ export async function handleOrders(
     let logiwaOrderId: string | null = null;
     let status = 'received';
 
-    const creds = await getLogiwaCredentials(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env);
     if (creds) {
       try {
-        // Split name into first/last for Logiwa
         const nameParts = order.shipTo.name.split(' ');
         const firstName = nameParts[0];
         const lastName = nameParts.slice(1).join(' ') || nameParts[0];
 
-        const result = await createShipmentOrder(creds, env, {
+        const result = await createShipmentOrder(creds, {
           code: order.externalOrderId,
           customer: {
             firstName,
@@ -82,11 +81,9 @@ export async function handleOrders(
         logiwaOrderId = result.identifier;
         status = 'sent';
 
-        // Store Logiwa response in R2
         const responseKey = `orders/${tenant.tenantId}/${orderId}/response.json`;
         await env.R2.put(responseKey, JSON.stringify(result));
 
-        // Update order with Logiwa ID
         await env.DB.prepare(
           `UPDATE orders SET logiwa_order_id = ?, status = 'sent', response_payload_key = ?, updated_at = datetime('now')
            WHERE id = ?`
@@ -94,7 +91,6 @@ export async function handleOrders(
           .bind(logiwaOrderId, responseKey, orderId)
           .run();
       } catch (err) {
-        // Order is saved locally — Logiwa send failed, will be retried
         console.error('Logiwa create order failed:', err);
         status = 'error';
         await env.DB.prepare(

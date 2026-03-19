@@ -45,32 +45,21 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const body = await request.json() as {
     name: string;
     base_url?: string;
-    logiwa_api_url: string;
-    logiwa_username: string;
-    logiwa_password: string;
-    logiwa_client_identifier?: string;
-    logiwa_warehouse_identifier?: string;
     callback_url?: string;
-    endpoints?: string[]; // array of endpoint_type strings
+    endpoints?: string[];
   };
 
-  if (!body.name || !body.logiwa_api_url || !body.logiwa_username || !body.logiwa_password) {
-    return Response.json({ error: 'Missing required fields' }, { status: 400 });
+  if (!body.name) {
+    return Response.json({ error: 'Missing required field: name' }, { status: 400 });
   }
 
   const id = crypto.randomUUID();
-  const credentials = JSON.stringify({
-    username: body.logiwa_username,
-    password: body.logiwa_password,
-    clientIdentifier: body.logiwa_client_identifier || undefined,
-    warehouseIdentifier: body.logiwa_warehouse_identifier || undefined,
-  });
 
   await env.DB.prepare(
     `INSERT INTO tenants (id, name, base_url, logiwa_api_url, logiwa_credentials, callback_url, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
+     VALUES (?, ?, ?, '', '{}', ?, 1, datetime('now'), datetime('now'))`
   )
-    .bind(id, body.name, body.base_url || null, body.logiwa_api_url, credentials, body.callback_url || null)
+    .bind(id, body.name, body.base_url || null, body.callback_url || null)
     .run();
 
   // Insert selected endpoints

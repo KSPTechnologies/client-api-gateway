@@ -12,21 +12,21 @@ export async function handleQueue(
   batch: MessageBatch,
   env: Env
 ): Promise<void> {
+  const creds = getLogiwaCredentials(env);
+
   for (const message of batch.messages) {
     try {
       const msg = message.body as RetryMessage;
 
       if (msg.type === 'create_order') {
-        const creds = await getLogiwaCredentials(env, msg.tenantId);
         if (!creds) {
-          console.error(`No credentials for tenant ${msg.tenantId}`);
-          message.ack(); // Don't retry if tenant doesn't exist
+          console.error('No Logiwa credentials configured');
+          message.ack();
           continue;
         }
 
-        const result = await createShipmentOrder(creds, env, msg.payload);
+        const result = await createShipmentOrder(creds, msg.payload);
 
-        // Update order record with Logiwa ID
         const responseKey = `orders/${msg.tenantId}/${msg.orderId}/response.json`;
         await env.R2.put(responseKey, JSON.stringify(result));
 
@@ -37,7 +37,6 @@ export async function handleQueue(
           .bind(result.identifier, responseKey, msg.orderId)
           .run();
 
-        // Update retry count in error log
         await env.DB.prepare(
           `UPDATE error_log SET resolved = 1 WHERE tenant_id = ? AND endpoint = '/v1/orders' AND resolved = 0
            ORDER BY created_at DESC LIMIT 1`

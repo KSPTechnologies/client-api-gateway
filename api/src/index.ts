@@ -7,6 +7,12 @@ export interface Env {
   KV: KVNamespace;
   R2: R2Bucket;
   RETRY_QUEUE: Queue;
+  // Logiwa credentials — set once as Worker secrets/vars
+  LOGIWA_API_URL: string;            // e.g. https://myapi.logiwa.com
+  LOGIWA_USERNAME: string;           // email
+  LOGIWA_PASSWORD: string;
+  LOGIWA_CLIENT_IDENTIFIER?: string; // Logiwa client GUID
+  LOGIWA_WAREHOUSE_IDENTIFIER?: string;
 }
 
 export default {
