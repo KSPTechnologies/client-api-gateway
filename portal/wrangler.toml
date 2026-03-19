@@ -1,0 +1,12 @@
+name = "client-api-gateway-portal"
+compatibility_date = "2024-12-01"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "client-api-gateway"
+database_id = "625fe274-4768-40f1-8083-2bc201eeb3fd"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "43692b54b0074c4692b279977e1a0aca"
