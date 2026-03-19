@@ -41,7 +41,7 @@ export default function Dashboard() {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="label">Active Tenants</div>
+          <div className="label">Active Clients</div>
           <div className="value">{data.tenants}</div>
         </div>
         <div className="stat-card">
@@ -77,7 +77,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <h2 style={{ fontSize: 16, marginBottom: 12 }}>Recent Requests</h2>
+      <h2 style={{ fontSize: 16, marginBottom: 12 }}>Recent API Activity</h2>
       <div className="table-container">
         {data.recentRequests.length === 0 ? (
           <div className="empty-state"><p>No requests yet</p></div>

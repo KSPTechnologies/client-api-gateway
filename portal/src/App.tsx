@@ -19,7 +19,7 @@ function App() {
         </div>
         <ul>
           <li className={page === 'dashboard' ? 'active' : ''} onClick={() => setPage('dashboard')}>Dashboard</li>
-          <li className={page === 'tenants' ? 'active' : ''} onClick={() => setPage('tenants')}>Tenants</li>
+          <li className={page === 'tenants' ? 'active' : ''} onClick={() => setPage('tenants')}>Clients</li>
           <li className={page === 'api-keys' ? 'active' : ''} onClick={() => setPage('api-keys')}>API Keys</li>
           <li className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>Orders</li>
           <li className={page === 'errors' ? 'active' : ''} onClick={() => setPage('errors')}>Errors</li>

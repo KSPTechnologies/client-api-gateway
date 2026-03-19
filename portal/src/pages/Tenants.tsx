@@ -1,19 +1,56 @@
 import { useState, useEffect } from 'react';
 
+interface TenantEndpoint {
+  endpoint_type: string;
+  enabled: number;
+  custom_path: string | null;
+}
+
 interface Tenant {
   id: string;
   name: string;
+  base_url: string | null;
   callback_url: string | null;
   active: number;
+  active_keys: number;
   created_at: string;
   updated_at: string;
+  endpoints: TenantEndpoint[];
 }
+
+const ENDPOINT_OPTIONS = [
+  { type: 'create_order', label: 'Create Order', method: 'POST', path: '/v1/orders' },
+  { type: 'get_order', label: 'Get Order Status', method: 'GET', path: '/v1/orders/:id' },
+  { type: 'tracking', label: 'Get Tracking', method: 'GET', path: '/v1/orders/:id/tracking' },
+  { type: 'inventory', label: 'Query Inventory', method: 'POST', path: '/v1/inventory/query' },
+  { type: 'create_po', label: 'Create Purchase Order (future)', method: 'POST', path: '/v1/purchase-orders', future: true },
+  { type: 'webhooks', label: 'Webhook Subscriptions (future)', method: 'POST', path: '/v1/webhooks', future: true },
+];
+
+interface CreateForm {
+  name: string;
+  base_url: string;
+  logiwa_api_url: string;
+  logiwa_username: string;
+  logiwa_password: string;
+  logiwa_client_identifier: string;
+  logiwa_warehouse_identifier: string;
+  callback_url: string;
+  endpoints: string[];
+}
+
+const emptyForm: CreateForm = {
+  name: '', base_url: '', logiwa_api_url: 'https://myapi.logiwa.com', logiwa_username: '',
+  logiwa_password: '', logiwa_client_identifier: '', logiwa_warehouse_identifier: '',
+  callback_url: '', endpoints: [],
+};
 
 export default function Tenants() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', logiwa_api_url: '', logiwa_credentials: '', callback_url: '' });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [form, setForm] = useState<CreateForm>({ ...emptyForm });
 
   const loadTenants = () => {
     fetch('/api/tenants')
@@ -24,6 +61,15 @@ export default function Tenants() {
 
   useEffect(loadTenants, []);
 
+  const toggleEndpoint = (type: string) => {
+    setForm((f) => ({
+      ...f,
+      endpoints: f.endpoints.includes(type)
+        ? f.endpoints.filter((e) => e !== type)
+        : [...f.endpoints, type],
+    }));
+  };
+
   const handleCreate = async () => {
     const res = await fetch('/api/tenants', {
       method: 'POST',
@@ -32,7 +78,7 @@ export default function Tenants() {
     });
     if (res.ok) {
       setShowModal(false);
-      setForm({ name: '', logiwa_api_url: '', logiwa_credentials: '', callback_url: '' });
+      setForm({ ...emptyForm });
       loadTenants();
     }
   };
@@ -42,31 +88,65 @@ export default function Tenants() {
   return (
     <div>
       <div className="toolbar">
-        <div className="page-header"><h1>Tenants</h1></div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>Add Tenant</button>
+        <div className="page-header"><h1>Clients</h1></div>
+        <button className="btn btn-primary" onClick={() => setShowModal(true)}>Add Client</button>
       </div>
 
       <div className="table-container">
         {tenants.length === 0 ? (
-          <div className="empty-state"><p>No tenants yet. Add one to get started.</p></div>
+          <div className="empty-state"><p>No clients yet. Add one to get started.</p></div>
         ) : (
           <table>
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Callback URL</th>
+                <th>Base URL</th>
+                <th>Active Keys</th>
+                <th>Endpoints</th>
                 <th>Status</th>
                 <th>Created</th>
               </tr>
             </thead>
             <tbody>
               {tenants.map((t) => (
-                <tr key={t.id}>
-                  <td><strong>{t.name}</strong><br /><span style={{ fontSize: 11, color: '#999' }}>{t.id}</span></td>
-                  <td>{t.callback_url || '—'}</td>
-                  <td><span className={`badge ${t.active ? 'active' : 'inactive'}`}>{t.active ? 'Active' : 'Inactive'}</span></td>
-                  <td>{new Date(t.created_at).toLocaleDateString()}</td>
-                </tr>
+                <>
+                  <tr key={t.id} onClick={() => setExpandedId(expandedId === t.id ? null : t.id)} style={{ cursor: 'pointer' }}>
+                    <td><strong>{t.name}</strong><br /><span style={{ fontSize: 11, color: '#999' }}>{t.id}</span></td>
+                    <td>{t.base_url || '—'}</td>
+                    <td>{t.active_keys}</td>
+                    <td>{t.endpoints.filter((e) => e.enabled).length} enabled</td>
+                    <td><span className={`badge ${t.active ? 'active' : 'inactive'}`}>{t.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>{new Date(t.created_at).toLocaleDateString()}</td>
+                  </tr>
+                  {expandedId === t.id && (
+                    <tr key={`${t.id}-detail`}>
+                      <td colSpan={6} style={{ background: '#fafafa', padding: '16px 24px' }}>
+                        <div style={{ fontSize: 13 }}>
+                          <strong>Enabled Endpoints:</strong>
+                          {t.endpoints.filter((e) => e.enabled).length === 0 ? (
+                            <span style={{ color: '#999', marginLeft: 8 }}>None configured</span>
+                          ) : (
+                            <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
+                              {t.endpoints.filter((e) => e.enabled).map((ep) => {
+                                const def = ENDPOINT_OPTIONS.find((o) => o.type === ep.endpoint_type);
+                                return (
+                                  <li key={ep.endpoint_type} style={{ marginBottom: 4 }}>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{def?.method}</span>{' '}
+                                    <span style={{ fontFamily: 'monospace' }}>{ep.custom_path || def?.path}</span>{' '}
+                                    <span style={{ color: '#888' }}>— {def?.label}</span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                          {t.callback_url && (
+                            <p style={{ marginTop: 8 }}><strong>Callback URL:</strong> <span style={{ fontFamily: 'monospace' }}>{t.callback_url}</span></p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               ))}
             </tbody>
           </table>
@@ -75,27 +155,95 @@ export default function Tenants() {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Add Tenant</h2>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
+            <h2>Add Client</h2>
+
             <div className="form-group">
-              <label>Name</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Client name" />
+              <label>Client Name</label>
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Acme Corp" />
             </div>
             <div className="form-group">
-              <label>Logiwa API URL</label>
-              <input value={form.logiwa_api_url} onChange={(e) => setForm({ ...form, logiwa_api_url: e.target.value })} placeholder="https://myapi.logiwa.com" />
+              <label>Base URL</label>
+              <input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="e.g. acme.com" />
             </div>
-            <div className="form-group">
-              <label>Logiwa Credentials (JSON)</label>
-              <input value={form.logiwa_credentials} onChange={(e) => setForm({ ...form, logiwa_credentials: e.target.value })} placeholder='{"username":"...","password":"..."}' />
+
+            <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Logiwa Credentials</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label>API URL</label>
+                  <input value={form.logiwa_api_url} onChange={(e) => setForm({ ...form, logiwa_api_url: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Username (email)</label>
+                  <input value={form.logiwa_username} onChange={(e) => setForm({ ...form, logiwa_username: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Password</label>
+                  <input type="password" value={form.logiwa_password} onChange={(e) => setForm({ ...form, logiwa_password: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Client Identifier (optional)</label>
+                  <input value={form.logiwa_client_identifier} onChange={(e) => setForm({ ...form, logiwa_client_identifier: e.target.value })} placeholder="GUID" />
+                </div>
+                <div className="form-group">
+                  <label>Warehouse Identifier (optional)</label>
+                  <input value={form.logiwa_warehouse_identifier} onChange={(e) => setForm({ ...form, logiwa_warehouse_identifier: e.target.value })} placeholder="GUID" />
+                </div>
+                <div className="form-group">
+                  <label>Callback URL (optional)</label>
+                  <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+                </div>
+              </div>
             </div>
-            <div className="form-group">
-              <label>Callback URL (optional)</label>
-              <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+
+            <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Endpoint Functions</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {ENDPOINT_OPTIONS.map((ep) => (
+                  <label key={ep.type} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                    padding: '8px 12px', border: '1px solid #eee', borderRadius: 6, cursor: 'pointer',
+                    background: form.endpoints.includes(ep.type) ? '#e3f2fd' : '#fff',
+                    opacity: (ep as any).future ? 0.5 : 1,
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={form.endpoints.includes(ep.type)}
+                      onChange={() => toggleEndpoint(ep.type)}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{ep.label}</div>
+                      <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{ep.method} {ep.path}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
+
+            {form.endpoints.length > 0 && form.base_url && (
+              <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Generated Endpoints</label>
+                <div style={{ background: '#1a1a2e', borderRadius: 6, padding: 12, fontSize: 12, fontFamily: 'monospace', color: '#a0a0c0' }}>
+                  {form.endpoints.map((epType) => {
+                    const def = ENDPOINT_OPTIONS.find((e) => e.type === epType);
+                    if (!def) return null;
+                    const slug = def.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                    return (
+                      <div key={epType} style={{ marginBottom: 4 }}>
+                        <span style={{ color: '#4a9eff' }}>{def.method}</span>{' '}
+                        <span style={{ color: '#4ade80' }}>{form.base_url}/{slug}</span>{' '}
+                        <span style={{ color: '#666' }}>→ {def.path}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="modal-actions">
               <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleCreate}>Create</button>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={!form.name || !form.logiwa_username || !form.logiwa_password}>Create Client</button>
             </div>
           </div>
         </div>

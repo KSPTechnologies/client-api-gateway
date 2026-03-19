@@ -55,6 +55,16 @@ export default function ApiKeys() {
     }
   };
 
+  const handleRevoke = async (keyId: string) => {
+    if (!confirm('Revoke this API key? The client will immediately lose access.')) return;
+    await fetch('/api/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'revoke', key_id: keyId }),
+    });
+    loadKeys();
+  };
+
   if (loading) return <div className="empty-state"><p>Loading...</p></div>;
 
   return (
@@ -66,17 +76,18 @@ export default function ApiKeys() {
 
       <div className="table-container">
         {keys.length === 0 ? (
-          <div className="empty-state"><p>No API keys yet. Generate one for a tenant.</p></div>
+          <div className="empty-state"><p>No API keys yet. Generate one for a client.</p></div>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Tenant</th>
+                <th>Client</th>
                 <th>Label</th>
                 <th>Rate Limit</th>
                 <th>Status</th>
                 <th>Last Used</th>
                 <th>Created</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -88,6 +99,11 @@ export default function ApiKeys() {
                   <td><span className={`badge ${k.active ? 'active' : 'inactive'}`}>{k.active ? 'Active' : 'Revoked'}</span></td>
                   <td>{k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'Never'}</td>
                   <td>{new Date(k.created_at).toLocaleDateString()}</td>
+                  <td>
+                    {k.active ? (
+                      <button className="btn btn-sm btn-danger" onClick={() => handleRevoke(k.id)}>Revoke</button>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -112,9 +128,9 @@ export default function ApiKeys() {
               <>
                 <h2>Generate API Key</h2>
                 <div className="form-group">
-                  <label>Tenant</label>
+                  <label>Client</label>
                   <select value={form.tenant_id} onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}>
-                    <option value="">Select a tenant...</option>
+                    <option value="">Select a client...</option>
                     {tenants.map((t) => (
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
