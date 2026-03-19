@@ -44,10 +44,9 @@ Everything is multi-tenant. Each client (business unit) gets their own tenant co
 │   └── migrations/
 │       └── 0001_init.sql         ← Schema: tenants, api_keys, orders, error_log, inventory_cache, request_log
 ├── docs/
-│   └── api-spec.md               ← Client-facing API documentation (skeleton)
-└── .github/
-    └── workflows/
-        └── deploy.yml            ← Auto-deploy Worker on push to master
+│   ├── api-spec.md               ← Client-facing API documentation (skeleton)
+│   └── logiwa-api-spec.txt       ← Logiwa IO v3.1 OpenAPI spec (full reference for Phase 3)
+└── .gitignore
 ```
 
 ## Cloudflare Resources
@@ -144,7 +143,7 @@ This unblocks all testing of the auth and route logic.
 Add `zod` for request body validation on POST endpoints. Reject bad data before it gets anywhere near Logiwa.
 
 ### Priority 3: Logiwa Client
-Once the Logiwa IO API spec is shared, build out `api/src/lib/logiwa.ts` with real API calls and wire the route stubs to use it.
+The Logiwa IO API spec is at `docs/logiwa-api-spec.txt` (v3.1 OpenAPI, covers auth, webhooks, shipment orders, products, inventory, purchase orders). Build out `api/src/lib/logiwa.ts` with real API calls and wire the route stubs to use it. Key endpoints: auth token flow, shipment order create/status, inventory queries, webhook subscriptions for tracking push-back.
 
 ### Priority 4: Portal
 Scaffold a Cloudflare Pages app in `portal/`. Gate it with Cloudflare Access (SSO). Start with the error queue view — that's the highest operational value.
