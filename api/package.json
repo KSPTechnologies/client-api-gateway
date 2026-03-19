@@ -5,10 +5,17 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute client-api-gateway --file=../db/migrations/0001_init.sql"
+    "db:migrate": "wrangler d1 execute client-api-gateway --file=../db/migrations/0001_init.sql",
+    "db:migrate:local": "wrangler d1 execute client-api-gateway --local --file=../db/migrations/0001_init.sql",
+    "db:migrate:remote": "wrangler d1 execute client-api-gateway --remote --file=../db/migrations/0001_init.sql",
+    "admin": "tsx scripts/admin.ts"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "wrangler": "^4.0.0"
   }

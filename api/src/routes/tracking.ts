@@ -1,5 +1,7 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
+import { notFound, methodNotAllowed } from '../lib/errors';
+import { getLogiwaCredentials, getShipmentOrder } from '../lib/logiwa';
 
 export async function handleTracking(
   request: Request,
@@ -10,19 +12,62 @@ export async function handleTracking(
   // GET /v1/orders/:id/tracking
   const match = path.match(/^\/v1\/orders\/([^/]+)\/tracking$/);
   if (!match) {
-    return Response.json({ error: 'Not found' }, { status: 404 });
+    throw notFound();
   }
 
   if (request.method !== 'GET') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    throw methodNotAllowed();
   }
 
   const orderId = match[1];
-  // TODO: Phase 3 — lookup tracking from Logiwa via D1 cache or live call
+
+  // Look up order to verify it belongs to this tenant
+  const order = await env.DB.prepare(
+    `SELECT id, logiwa_order_id, status FROM orders WHERE id = ? AND tenant_id = ?`
+  )
+    .bind(orderId, tenant.tenantId)
+    .first();
+
+  if (!order) {
+    throw notFound(`Order ${orderId} not found`);
+  }
+
+  // Fetch live tracking from Logiwa if we have a Logiwa order ID
+  let tracking: any = null;
+  let carrier: string | null = null;
+  let trackingNumber: string | null = null;
+  let estimatedDelivery: string | null = null;
+
+  if (order.logiwa_order_id) {
+    const creds = await getLogiwaCredentials(env, tenant.tenantId);
+    if (creds) {
+      try {
+        const logiwaOrder = await getShipmentOrder(creds, env, order.logiwa_order_id as string);
+        if (logiwaOrder) {
+          carrier = logiwaOrder.carrierName || null;
+          trackingNumber = logiwaOrder.trackingNumbers?.[0] || null;
+          estimatedDelivery = logiwaOrder.expectedDeliveryDate || null;
+          tracking = {
+            logiwaStatus: logiwaOrder.shipmentOrderStatusName,
+            shipmentDate: logiwaOrder.actualShipmentDate || null,
+            trackingNumbers: logiwaOrder.trackingNumbers || [],
+            carrier: logiwaOrder.carrierName || null,
+            shippingCost: logiwaOrder.totalShippingCost || null,
+          };
+        }
+      } catch (err) {
+        console.error('Logiwa tracking fetch failed:', err);
+        // Return what we have from D1
+      }
+    }
+  }
+
   return Response.json({
-    orderId,
-    tenantId: tenant.tenantId,
-    tracking: null,
-    status: 'stub',
+    orderId: order.id,
+    status: order.status,
+    tracking,
+    carrier,
+    trackingNumber,
+    estimatedDelivery,
   });
 }

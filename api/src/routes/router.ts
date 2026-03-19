@@ -4,6 +4,8 @@ import { handleOrders } from './orders';
 import { handleTracking } from './tracking';
 import { handleInventory } from './inventory';
 import { logRequest } from '../lib/logger';
+import { checkRateLimit } from '../lib/rate-limit';
+import { ApiError, unauthorized, notFound, rateLimited, internal } from '../lib/errors';
 
 export async function handleRequest(
   request: Request,
@@ -13,15 +15,32 @@ export async function handleRequest(
   const url = new URL(request.url);
   const path = url.pathname;
 
+  // CORS preflight
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders(),
+    });
+  }
+
   // Health check — no auth required
   if (path === '/v1/health') {
-    return Response.json({ status: 'ok', timestamp: new Date().toISOString() });
+    return withCors(Response.json({ status: 'ok', timestamp: new Date().toISOString() }));
   }
 
   // Authenticate
   const tenant = await authenticateRequest(request, env);
   if (!tenant) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    return withCors(unauthorized().toResponse());
+  }
+
+  // Rate limit
+  const { allowed, remaining } = await checkRateLimit(env, tenant.tenantId, tenant.rateLimit);
+  if (!allowed) {
+    return withCors(rateLimited().toResponse(), {
+      'X-RateLimit-Limit': tenant.rateLimit.toString(),
+      'X-RateLimit-Remaining': '0',
+    });
   }
 
   // Route
@@ -34,21 +53,52 @@ export async function handleRequest(
     } else if (path.startsWith('/v1/inventory')) {
       response = await handleInventory(request, env, tenant, path);
     } else {
-      response = Response.json({ error: 'Not found' }, { status: 404 });
+      response = notFound().toResponse();
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal server error';
-    response = Response.json({ error: message }, { status: 500 });
+    if (err instanceof ApiError) {
+      response = err.toResponse();
+      ctx.waitUntil(logRequest(env, tenant.tenantId, request, response, err.message));
+      return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining));
+    }
 
-    // Log error to D1
-    ctx.waitUntil(
-      logRequest(env, tenant.tenantId, request, response, message)
-    );
-    return response;
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    response = internal(message).toResponse();
+    ctx.waitUntil(logRequest(env, tenant.tenantId, request, response, message));
+    return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining));
   }
 
   // Log successful request
   ctx.waitUntil(logRequest(env, tenant.tenantId, request, response));
 
-  return response;
+  return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining));
+}
+
+function corsHeaders(): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
+    'Access-Control-Max-Age': '86400',
+  };
+}
+
+function rateLimitHeaders(limit: number, remaining: number): Record<string, string> {
+  return {
+    'X-RateLimit-Limit': limit.toString(),
+    'X-RateLimit-Remaining': remaining.toString(),
+  };
+}
+
+function withCors(response: Response, extra?: Record<string, string>): Response {
+  const headers = new Headers(response.headers);
+  for (const [k, v] of Object.entries(corsHeaders())) {
+    headers.set(k, v);
+  }
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      headers.set(k, v);
+    }
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }

@@ -1,18 +1,25 @@
 import { Env } from '../index';
+import { ApiError } from './errors';
 
 /**
  * Logiwa IO API client.
- * Initialized per-request with tenant-specific credentials from D1.
- *
- * TODO: Phase 3 — implement when Logiwa API spec is available.
+ * Handles auth token management and all Logiwa API interactions.
  */
 
 export interface LogiwaCredentials {
-  apiUrl: string;
-  username: string;
+  apiUrl: string;       // e.g. https://myapi.logiwa.com
+  username: string;     // email
   password: string;
-  // Add token fields as needed for Logiwa auth flow
+  clientIdentifier?: string;  // Logiwa client GUID (tenant in Logiwa's system)
+  warehouseIdentifier?: string;
 }
+
+export interface LogiwaToken {
+  token: string;
+  expiresAt: number;  // timestamp
+}
+
+// ── Credential Fetching ──────────────────────────────
 
 export async function getLogiwaCredentials(
   env: Env,
@@ -26,7 +33,7 @@ export async function getLogiwaCredentials(
 
   if (!result) return null;
 
-  // TODO: decrypt credentials
+  // TODO: decrypt credentials when encryption-at-rest is implemented
   const creds = JSON.parse(result.logiwa_credentials as string);
   return {
     apiUrl: result.logiwa_api_url as string,
@@ -34,9 +41,247 @@ export async function getLogiwaCredentials(
   };
 }
 
-// TODO: Phase 3 — add methods:
-// - authenticate(creds) — get/refresh Logiwa auth token
-// - createOrder(creds, orderData)
-// - getOrder(creds, orderId)
-// - getTracking(creds, orderId)
-// - queryInventory(creds, skus)
+// ── Token Management ─────────────────────────────────
+
+const tokenCache = new Map<string, LogiwaToken>();
+
+async function getToken(creds: LogiwaCredentials, env: Env): Promise<string> {
+  const cacheKey = `${creds.apiUrl}:${creds.username}`;
+  const cached = tokenCache.get(cacheKey);
+
+  // Return cached token if it has >60s remaining
+  if (cached && cached.expiresAt > Date.now() + 60_000) {
+    return cached.token;
+  }
+
+  // Fetch new token
+  const res = await fetch(`${creds.apiUrl}/v3.1/Authorize/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: creds.username,
+      password: creds.password,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(502, `Logiwa auth failed (${res.status}): ${body}`, 'LOGIWA_AUTH_FAILED');
+  }
+
+  const data = (await res.json()) as { token: string };
+  const token: LogiwaToken = {
+    token: data.token,
+    expiresAt: Date.now() + 55 * 60_000, // assume ~1hr token, refresh at 55min
+  };
+  tokenCache.set(cacheKey, token);
+  return token.token;
+}
+
+// ── HTTP Helper ──────────────────────────────────────
+
+async function logiwaFetch(
+  creds: LogiwaCredentials,
+  env: Env,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<any> {
+  const token = await getToken(creds, env);
+  const url = `${creds.apiUrl}${path}`;
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  // Handle 401 by retrying with a fresh token once
+  if (res.status === 401) {
+    tokenCache.delete(`${creds.apiUrl}:${creds.username}`);
+    const freshToken = await getToken(creds, env);
+    const retry = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${freshToken}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!retry.ok) {
+      const errBody = await retry.text();
+      throw new ApiError(502, `Logiwa API error (${retry.status}): ${errBody}`, 'LOGIWA_API_ERROR');
+    }
+    if (retry.status === 204) return null;
+    return retry.json();
+  }
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new ApiError(502, `Logiwa API error (${res.status}): ${errBody}`, 'LOGIWA_API_ERROR');
+  }
+
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── Shipment Order Operations ────────────────────────
+
+export interface CreateShipmentOrderInput {
+  code: string;
+  customer: { firstName: string; lastName: string; email?: string };
+  shipmentAddress: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phoneNumber?: string;
+  };
+  shipmentOrderLineList: Array<{
+    sku: string;
+    packQuantity: number;
+    unitPrice?: number;
+  }>;
+  note?: string;
+  clientReferenceCode?: string;
+  shipmentOrderDate?: string;
+  expectedShipmentDate?: string;
+}
+
+export async function createShipmentOrder(
+  creds: LogiwaCredentials,
+  env: Env,
+  order: CreateShipmentOrderInput
+): Promise<{ identifier: string; status: number; message: string }> {
+  const payload = {
+    ...order,
+    clientIdentifier: creds.clientIdentifier,
+    warehouseIdentifier: creds.warehouseIdentifier,
+    useSameAddress: true,
+  };
+
+  const result = await logiwaFetch(creds, env, 'POST', '/v3.1/ShipmentOrder/create', payload);
+  return {
+    identifier: result.data,
+    status: result.status,
+    message: result.message || 'Created',
+  };
+}
+
+export async function getShipmentOrder(
+  creds: LogiwaCredentials,
+  env: Env,
+  identifier: string
+): Promise<any> {
+  return logiwaFetch(creds, env, 'GET', `/v3.1/ShipmentOrder/${identifier}`);
+}
+
+export async function listShipmentOrders(
+  creds: LogiwaCredentials,
+  env: Env,
+  index: number,
+  size: number,
+  filters?: Record<string, string>
+): Promise<{ data: any[]; totalCount: number }> {
+  let path = `/v3.1/ShipmentOrder/list/i/${index}/s/${size}`;
+  if (filters) {
+    const params = new URLSearchParams(filters);
+    path += `?${params.toString()}`;
+  }
+  return logiwaFetch(creds, env, 'GET', path);
+}
+
+export async function cancelShipmentOrder(
+  creds: LogiwaCredentials,
+  env: Env,
+  identifier: string,
+  reason?: string
+): Promise<boolean> {
+  const payload = {
+    clientIdentifier: creds.clientIdentifier,
+    cancelReasonName: reason || 'Cancelled via API gateway',
+  };
+  const result = await logiwaFetch(creds, env, 'POST', `/v3.1/ShipmentOrder/cancel/${identifier}`, payload);
+  return result?.value === true;
+}
+
+// ── Inventory Operations ─────────────────────────────
+
+export interface InventoryItem {
+  identifier: string;
+  productSku: string;
+  productName: string;
+  totalQuantity: number;
+  availableQuantity: number;
+  allocatedQuantity: number;
+  warehouseCode: string;
+  warehouseLocationCode: string;
+  inventoryStatusName: string;
+  lotBatchNumber?: string;
+  expiryDate?: string;
+}
+
+export async function queryInventory(
+  creds: LogiwaCredentials,
+  env: Env,
+  skus: string[],
+  pageSize = 200
+): Promise<InventoryItem[]> {
+  const allItems: InventoryItem[] = [];
+
+  for (const sku of skus) {
+    const filters: Record<string, string> = { 'Sku.eq': sku };
+    if (creds.clientIdentifier) {
+      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+    }
+    const params = new URLSearchParams(filters);
+    const path = `/v3.1/Inventory/list/i/0/s/${pageSize}?${params.toString()}`;
+    const result = await logiwaFetch(creds, env, 'GET', path);
+
+    if (result?.data) {
+      allItems.push(...result.data);
+    }
+  }
+
+  return allItems;
+}
+
+// ── Webhook Management ───────────────────────────────
+
+export async function subscribeWebhook(
+  creds: LogiwaCredentials,
+  env: Env,
+  topic: string,
+  callbackUrl: string
+): Promise<string> {
+  const payload = {
+    topic,
+    address: callbackUrl,
+    clientIdentifier: creds.clientIdentifier,
+    ignoreClient: false,
+  };
+  const result = await logiwaFetch(creds, env, 'POST', '/v3.1/Webhook/create', payload);
+  return result.data; // webhook subscription ID
+}
+
+export async function listWebhooks(
+  creds: LogiwaCredentials,
+  env: Env
+): Promise<any[]> {
+  const result = await logiwaFetch(creds, env, 'GET', '/v3.1/Webhook/list');
+  return result?.data || [];
+}
+
+export async function deleteWebhook(
+  creds: LogiwaCredentials,
+  env: Env,
+  subscriptionId: string
+): Promise<boolean> {
+  const result = await logiwaFetch(creds, env, 'DELETE', `/v3.1/Webhook/${subscriptionId}`);
+  return result?.value === true;
+}
