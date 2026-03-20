@@ -72,6 +72,7 @@ export async function handleOrders(
           },
           shipmentOrderLineList: order.items.map((item) => ({
             sku: item.sku,
+            packType: 'Unit',
             packQuantity: item.quantity,
             unitPrice: item.unitPrice,
           })),

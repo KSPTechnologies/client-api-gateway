@@ -197,8 +197,8 @@ export async function createShipmentOrder(
 
   const result = await logiwaFetch(creds, 'POST', '/v3.1/ShipmentOrder/create', payload);
   return {
-    identifier: result.data,
-    status: result.status,
+    identifier: result.value || result.data,
+    status: result.status || 0,
     message: result.message || 'Created',
   };
 }
@@ -323,8 +323,8 @@ export async function createPurchaseOrder(
 
   const result = await logiwaFetch(creds, 'POST', '/v3.1/PurchaseOrder/create', payload);
   return {
-    identifier: result.data,
-    status: result.status,
+    identifier: result.value || result.data,
+    status: result.status || 0,
     message: result.message || 'Created',
   };
 }
