@@ -4,6 +4,7 @@ import { handleOrders } from './orders';
 import { handleTracking } from './tracking';
 import { handleInventory } from './inventory';
 import { handlePurchaseOrders } from './purchase-orders';
+import { handleWebhooks } from './webhooks';
 import { logRequest } from '../lib/logger';
 import { checkRateLimit } from '../lib/rate-limit';
 import { ApiError, unauthorized, notFound, rateLimited, internal } from '../lib/errors';
@@ -27,6 +28,11 @@ export async function handleRequest(
   // Health check — no auth required
   if (path === '/v1/health') {
     return withCors(Response.json({ status: 'ok', timestamp: new Date().toISOString() }));
+  }
+
+  // Webhooks from Logiwa — no API key auth required
+  if (path.startsWith('/v1/webhooks/')) {
+    return withCors(await handleWebhooks(request, env, path));
   }
 
   // Authenticate
