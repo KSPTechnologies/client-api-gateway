@@ -274,6 +274,94 @@ export async function queryInventory(
   return allItems;
 }
 
+// ── Purchase Order Operations ────────────────────────
+
+export interface CreatePurchaseOrderInput {
+  code: string;
+  vendor?: string;
+  purchaseOrderDate?: string;
+  plannedReceivingDate?: string;
+  plannedArrivalDate?: string;
+  referenceNumber?: string;
+  purchaseOrderLineList: Array<{
+    sku: string;
+    packType?: string;
+    packQuantity: number;
+    unitPrice?: number;
+    lotBatchNumber?: string;
+  }>;
+  vendorBillingAddress?: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+  vendorShipmentAddress?: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+}
+
+export async function createPurchaseOrder(
+  creds: LogiwaCredentials,
+  po: CreatePurchaseOrderInput
+): Promise<{ identifier: string; status: number; message: string }> {
+  const payload = {
+    ...po,
+    clientIdentifier: creds.clientIdentifier,
+    warehouseIdentifier: creds.warehouseIdentifier,
+  };
+
+  const result = await logiwaFetch(creds, 'POST', '/v3.1/PurchaseOrder/create', payload);
+  return {
+    identifier: result.data,
+    status: result.status,
+    message: result.message || 'Created',
+  };
+}
+
+export async function getPurchaseOrder(
+  creds: LogiwaCredentials,
+  identifier: string
+): Promise<any> {
+  return logiwaFetch(creds, 'GET', `/v3.1/PurchaseOrder/${identifier}`);
+}
+
+export async function listPurchaseOrders(
+  creds: LogiwaCredentials,
+  index: number,
+  size: number,
+  filters?: Record<string, string>
+): Promise<{ data: any[]; totalCount: number }> {
+  let path = `/v3.1/PurchaseOrder/list/i/${index}/s/${size}`;
+  if (filters) {
+    const params = new URLSearchParams(filters);
+    path += `?${params.toString()}`;
+  }
+  return logiwaFetch(creds, 'GET', path);
+}
+
+export async function getPurchaseOrderReceipts(
+  creds: LogiwaCredentials,
+  index: number,
+  size: number,
+  filters?: Record<string, string>
+): Promise<any[]> {
+  let path = `/v3.1/Report/PurchaseOrderReceivingHistory/i/${index}/s/${size}`;
+  if (filters) {
+    const params = new URLSearchParams(filters);
+    path += `?${params.toString()}`;
+  }
+  const result = await logiwaFetch(creds, 'GET', path);
+  return result?.data || [];
+}
+
 // ── Webhook Management ───────────────────────────────
 
 export async function subscribeWebhook(

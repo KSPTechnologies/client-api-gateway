@@ -20,7 +20,7 @@ export async function handleQueue(
         const config = await getTenantLogiwaConfig(env, msg.tenantId);
         const creds = getLogiwaCredentials(env, config.environment, config.clientIdentifier);
         if (!creds) {
-          console.error(`No Logiwa ${tenantEnv} credentials configured`);
+          console.error(`No Logiwa ${config.environment} credentials configured`);
           message.ack();
           continue;
         }
