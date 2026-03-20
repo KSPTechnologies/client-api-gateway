@@ -23,6 +23,7 @@ export const createOrderSchema = z.object({
     .array(
       z.object({
         sku: z.string().min(1).max(100),
+        packType: z.string().max(50).optional(),
         quantity: z.number().int().positive(),
         unitPrice: z.number().nonnegative().optional(),
       })

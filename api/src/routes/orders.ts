@@ -45,6 +45,7 @@ export async function handleOrders(
     // Forward to Logiwa
     let logiwaOrderId: string | null = null;
     let status = 'received';
+    let errorDetail: string | null = null;
 
     const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
@@ -72,7 +73,7 @@ export async function handleOrders(
           },
           shipmentOrderLineList: order.items.map((item) => ({
             sku: item.sku,
-            packType: 'Unit',
+            packType: item.packType,
             packQuantity: item.quantity,
             unitPrice: item.unitPrice,
           })),
@@ -93,12 +94,21 @@ export async function handleOrders(
           .bind(logiwaOrderId, responseKey, orderId)
           .run();
       } catch (err) {
-        console.error('Logiwa create order failed:', err);
+        errorDetail = err instanceof Error ? err.message : String(err);
+        console.error('Logiwa create order failed:', errorDetail);
         status = 'error';
         await env.DB.prepare(
           `UPDATE orders SET status = 'error', updated_at = datetime('now') WHERE id = ?`
         )
           .bind(orderId)
+          .run();
+
+        // Log to error_log for portal visibility
+        await env.DB.prepare(
+          `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+           VALUES (?, '/v1/orders', 'POST', ?, 502, 0, 0, datetime('now'))`
+        )
+          .bind(tenant.tenantId, errorDetail)
           .run();
       }
     }
@@ -112,7 +122,7 @@ export async function handleOrders(
         message: status === 'sent'
           ? 'Order created and sent to Logiwa'
           : status === 'error'
-            ? 'Order saved but Logiwa submission failed — will be retried'
+            ? `Order saved but Logiwa submission failed: ${errorDetail}`
             : 'Order received and queued for processing',
       },
       { status: 201 }
