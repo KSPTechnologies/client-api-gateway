@@ -2,7 +2,8 @@
 
 Multi-tenant API gateway that sits between external clients and our Logiwa IO WMS. Clients hit our API with their own keys — they never touch Logiwa credentials.
 
-**Live Worker:** `https://client-api-gateway.mike-geiger.workers.dev`
+**API (client-facing):** `https://connect.ksp3plhq.com`
+**Portal (internal):** `https://connect-portal.ksp3plhq.com`
 
 ## Architecture
 
