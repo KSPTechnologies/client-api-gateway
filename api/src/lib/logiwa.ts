@@ -26,7 +26,7 @@ export type LogiwaEnvironment = 'sandbox' | 'production';
 
 // ── Credential Fetching ──────────────────────────────
 
-export function getLogiwaCredentials(env: Env, environment: LogiwaEnvironment): LogiwaCredentials | null {
+export function getLogiwaCredentials(env: Env, environment: LogiwaEnvironment, clientIdentifier?: string): LogiwaCredentials | null {
   if (environment === 'production') {
     if (!env.LOGIWA_PROD_API_URL || !env.LOGIWA_PROD_USERNAME || !env.LOGIWA_PROD_PASSWORD) {
       return null;
@@ -35,7 +35,7 @@ export function getLogiwaCredentials(env: Env, environment: LogiwaEnvironment): 
       apiUrl: env.LOGIWA_PROD_API_URL,
       username: env.LOGIWA_PROD_USERNAME,
       password: env.LOGIWA_PROD_PASSWORD,
-      clientIdentifier: env.LOGIWA_PROD_CLIENT_IDENTIFIER,
+      clientIdentifier,
       warehouseIdentifier: env.LOGIWA_PROD_WAREHOUSE_IDENTIFIER,
     };
   }
@@ -47,19 +47,30 @@ export function getLogiwaCredentials(env: Env, environment: LogiwaEnvironment): 
     apiUrl: env.LOGIWA_SANDBOX_API_URL,
     username: env.LOGIWA_SANDBOX_USERNAME,
     password: env.LOGIWA_SANDBOX_PASSWORD,
-    clientIdentifier: env.LOGIWA_SANDBOX_CLIENT_IDENTIFIER,
+    clientIdentifier,
     warehouseIdentifier: env.LOGIWA_SANDBOX_WAREHOUSE_IDENTIFIER,
   };
 }
 
+interface TenantLogiwaConfig {
+  environment: LogiwaEnvironment;
+  clientIdentifier?: string;
+}
+
 /**
- * Look up a tenant's configured Logiwa environment from D1.
+ * Look up a tenant's Logiwa environment and client identifier from D1.
  */
-export async function getTenantEnvironment(env: Env, tenantId: string): Promise<LogiwaEnvironment> {
+export async function getTenantLogiwaConfig(env: Env, tenantId: string): Promise<TenantLogiwaConfig> {
   const row = await env.DB.prepare(
-    'SELECT logiwa_environment FROM tenants WHERE id = ?'
+    'SELECT logiwa_environment, logiwa_sandbox_client_id, logiwa_prod_client_id FROM tenants WHERE id = ?'
   ).bind(tenantId).first();
-  return (row?.logiwa_environment === 'production') ? 'production' : 'sandbox';
+
+  const environment: LogiwaEnvironment = (row?.logiwa_environment === 'production') ? 'production' : 'sandbox';
+  const clientIdentifier = environment === 'production'
+    ? (row?.logiwa_prod_client_id as string | undefined)
+    : (row?.logiwa_sandbox_client_id as string | undefined);
+
+  return { environment, clientIdentifier };
 }
 
 // ── Token Management ─────────────────────────────────

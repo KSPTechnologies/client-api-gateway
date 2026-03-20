@@ -14,9 +14,16 @@ interface Tenant {
   active: number;
   active_keys: number;
   logiwa_environment: 'sandbox' | 'production';
+  logiwa_sandbox_client_id: string | null;
+  logiwa_prod_client_id: string | null;
   created_at: string;
   updated_at: string;
   endpoints: TenantEndpoint[];
+}
+
+interface LogiwaClient {
+  identifier: string;
+  displayName: string;
 }
 
 const ENDPOINT_OPTIONS = [
@@ -33,10 +40,13 @@ interface CreateForm {
   base_url: string;
   callback_url: string;
   endpoints: string[];
+  logiwa_sandbox_client_id: string;
+  logiwa_prod_client_id: string;
 }
 
 const emptyForm: CreateForm = {
   name: '', base_url: '', callback_url: '', endpoints: [],
+  logiwa_sandbox_client_id: '', logiwa_prod_client_id: '',
 };
 
 export default function Tenants() {
@@ -45,6 +55,19 @@ export default function Tenants() {
   const [showModal, setShowModal] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState<CreateForm>({ ...emptyForm });
+  const [sandboxClients, setSandboxClients] = useState<LogiwaClient[]>([]);
+  const [prodClients, setProdClients] = useState<LogiwaClient[]>([]);
+
+  const loadLogiwaClients = () => {
+    fetch('/api/logiwa-clients?env=sandbox')
+      .then((r) => r.json())
+      .then((d) => setSandboxClients((d as { clients: LogiwaClient[] }).clients || []))
+      .catch(() => {});
+    fetch('/api/logiwa-clients?env=production')
+      .then((r) => r.json())
+      .then((d) => setProdClients((d as { clients: LogiwaClient[] }).clients || []))
+      .catch(() => {});
+  };
 
   const loadTenants = () => {
     fetch('/api/tenants')
@@ -53,7 +76,7 @@ export default function Tenants() {
       .catch(() => setLoading(false));
   };
 
-  useEffect(loadTenants, []);
+  useEffect(() => { loadTenants(); loadLogiwaClients(); }, []);
 
   const toggleEndpoint = (type: string) => {
     setForm((f) => ({
@@ -191,6 +214,30 @@ export default function Tenants() {
             <div className="form-group">
               <label>Callback URL (optional — for tracking push notifications)</label>
               <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+            </div>
+
+            <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Logiwa Client Mapping</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label>Sandbox Client</label>
+                  <select value={form.logiwa_sandbox_client_id} onChange={(e) => setForm({ ...form, logiwa_sandbox_client_id: e.target.value })}>
+                    <option value="">Select sandbox client...</option>
+                    {sandboxClients.map((c) => (
+                      <option key={c.identifier} value={c.identifier}>{c.displayName}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Production Client</label>
+                  <select value={form.logiwa_prod_client_id} onChange={(e) => setForm({ ...form, logiwa_prod_client_id: e.target.value })}>
+                    <option value="">Select production client...</option>
+                    {prodClients.map((c) => (
+                      <option key={c.identifier} value={c.identifier}>{c.displayName}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
 
             <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>

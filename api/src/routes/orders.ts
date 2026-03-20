@@ -2,7 +2,7 @@ import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { createOrderSchema } from '../lib/validate';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
-import { getLogiwaCredentials, getTenantEnvironment, createShipmentOrder } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, createShipmentOrder } from '../lib/logiwa';
 
 export async function handleOrders(
   request: Request,
@@ -46,8 +46,8 @@ export async function handleOrders(
     let logiwaOrderId: string | null = null;
     let status = 'received';
 
-    const tenantEnv = await getTenantEnvironment(env, tenant.tenantId);
-    const creds = getLogiwaCredentials(env, tenantEnv);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
     if (creds) {
       try {
         const nameParts = order.shipTo.name.split(' ');

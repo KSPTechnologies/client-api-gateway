@@ -1,5 +1,5 @@
 import { Env } from '../index';
-import { getLogiwaCredentials, getTenantEnvironment, createShipmentOrder } from './logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, createShipmentOrder } from './logiwa';
 
 interface RetryMessage {
   type: 'create_order';
@@ -17,8 +17,8 @@ export async function handleQueue(
       const msg = message.body as RetryMessage;
 
       if (msg.type === 'create_order') {
-        const tenantEnv = await getTenantEnvironment(env, msg.tenantId);
-        const creds = getLogiwaCredentials(env, tenantEnv);
+        const config = await getTenantLogiwaConfig(env, msg.tenantId);
+        const creds = getLogiwaCredentials(env, config.environment, config.clientIdentifier);
         if (!creds) {
           console.error(`No Logiwa ${tenantEnv} credentials configured`);
           message.ack();

@@ -1,5 +1,5 @@
 import { Env } from '../index';
-import { getLogiwaCredentials, getTenantEnvironment, getShipmentOrder, queryInventory, LogiwaCredentials } from './logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrder, queryInventory, LogiwaCredentials } from './logiwa';
 
 export async function handleScheduled(
   event: ScheduledEvent,
@@ -21,8 +21,8 @@ export async function handleScheduled(
 }
 
 async function getCredsForTenant(env: Env, tenantId: string): Promise<LogiwaCredentials | null> {
-  const tenantEnv = await getTenantEnvironment(env, tenantId);
-  return getLogiwaCredentials(env, tenantEnv);
+  const config = await getTenantLogiwaConfig(env, tenantId);
+  return getLogiwaCredentials(env, config.environment, config.clientIdentifier);
 }
 
 async function syncTracking(env: Env): Promise<void> {

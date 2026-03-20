@@ -15,7 +15,7 @@ const ENDPOINT_TYPES = [
 // GET /api/tenants — list all tenants with key counts and enabled endpoints
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   const tenants = await env.DB.prepare(
-    `SELECT t.id, t.name, t.base_url, t.callback_url, t.active, t.logiwa_environment, t.created_at, t.updated_at,
+    `SELECT t.id, t.name, t.base_url, t.callback_url, t.active, t.logiwa_environment, t.logiwa_sandbox_client_id, t.logiwa_prod_client_id, t.created_at, t.updated_at,
        (SELECT COUNT(*) FROM api_keys ak WHERE ak.tenant_id = t.id AND ak.active = 1) as active_keys
      FROM tenants t ORDER BY t.created_at DESC`
   ).all();
@@ -47,6 +47,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     base_url?: string;
     callback_url?: string;
     endpoints?: string[];
+    logiwa_sandbox_client_id?: string;
+    logiwa_prod_client_id?: string;
   };
 
   if (!body.name) {
@@ -56,10 +58,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const id = crypto.randomUUID();
 
   await env.DB.prepare(
-    `INSERT INTO tenants (id, name, base_url, logiwa_api_url, logiwa_credentials, callback_url, active, created_at, updated_at)
-     VALUES (?, ?, ?, '', '{}', ?, 1, datetime('now'), datetime('now'))`
+    `INSERT INTO tenants (id, name, base_url, logiwa_api_url, logiwa_credentials, callback_url, logiwa_sandbox_client_id, logiwa_prod_client_id, active, created_at, updated_at)
+     VALUES (?, ?, ?, '', '{}', ?, ?, ?, 1, datetime('now'), datetime('now'))`
   )
-    .bind(id, body.name, body.base_url || null, body.callback_url || null)
+    .bind(id, body.name, body.base_url || null, body.callback_url || null, body.logiwa_sandbox_client_id || null, body.logiwa_prod_client_id || null)
     .run();
 
   // Insert selected endpoints
