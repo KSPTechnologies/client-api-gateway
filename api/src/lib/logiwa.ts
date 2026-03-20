@@ -190,6 +190,7 @@ export async function createShipmentOrder(
     ...order,
     shipmentOrderType: order.shipmentOrderType || 'Sales Order',
     shipmentOrderDate: order.shipmentOrderDate || new Date().toISOString().split('T')[0],
+    channelName: 'KSP API Gateway',
     clientIdentifier: creds.clientIdentifier,
     warehouseIdentifier: creds.warehouseIdentifier,
     useSameAddress: true,
