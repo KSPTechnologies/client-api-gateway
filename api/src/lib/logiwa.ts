@@ -188,7 +188,7 @@ export async function createShipmentOrder(
 ): Promise<{ identifier: string; status: number; message: string }> {
   const payload = {
     ...order,
-    shipmentOrderType: order.shipmentOrderType || 'Sales Order',
+    shipmentOrderType: order.shipmentOrderType || 'Shipment Order',
     shipmentOrderDate: order.shipmentOrderDate || new Date().toISOString().split('T')[0],
     channelName: 'KSP API Gateway',
     clientIdentifier: creds.clientIdentifier,

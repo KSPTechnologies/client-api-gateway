@@ -91,7 +91,7 @@ export async function handleOrders(
         clientIdentifier: creds.clientIdentifier,
         warehouseIdentifier: creds.warehouseIdentifier,
         channelName: 'KSP API Gateway',
-        shipmentOrderType: body.shipmentOrderType || 'Sales Order',
+        shipmentOrderType: body.shipmentOrderType || 'Shipment Order',
         shipmentOrderDate: body.shipmentOrderDate || new Date().toISOString().split('T')[0],
         useSameAddress: body.useSameAddress !== undefined ? body.useSameAddress : true,
       };
@@ -182,7 +182,7 @@ export async function handleOrders(
       clientIdentifier: creds.clientIdentifier,
       warehouseIdentifier: creds.warehouseIdentifier,
       channelName: 'KSP API Gateway',
-      shipmentOrderType: order.shipmentOrderType || 'Sales Order',
+      shipmentOrderType: order.shipmentOrderType || 'Shipment Order',
       shipmentOrderDate: order.shipmentOrderDate || new Date().toISOString().split('T')[0],
       useSameAddress: order.useSameAddress !== undefined ? order.useSameAddress : true,
     }));
