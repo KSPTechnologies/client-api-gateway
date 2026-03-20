@@ -2,10 +2,9 @@ name = "client-api-gateway"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
-# Custom domain — update when ready
-# routes = [
-#   { pattern = "api.yourcompany.com/*", zone_name = "yourcompany.com" }
-# ]
+routes = [
+  { pattern = "connect.ksp3plhq.com/*", zone_name = "ksp3plhq.com" }
+]
 
 # ── Bindings ──────────────────────────────────────────
 
