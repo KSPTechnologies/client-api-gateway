@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDate, formatDateShort } from '../utils';
 
 interface ApiKey {
   id: string;
@@ -97,8 +98,8 @@ export default function ApiKeys() {
                   <td>{k.label || '—'}</td>
                   <td>{k.rate_limit}/min</td>
                   <td><span className={`badge ${k.active ? 'active' : 'inactive'}`}>{k.active ? 'Active' : 'Revoked'}</span></td>
-                  <td>{k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'Never'}</td>
-                  <td>{new Date(k.created_at).toLocaleDateString()}</td>
+                  <td>{k.last_used_at ? formatDate(k.last_used_at) : 'Never'}</td>
+                  <td>{formatDateShort(k.created_at)}</td>
                   <td>
                     {k.active ? (
                       <button className="btn btn-sm btn-danger" onClick={() => handleRevoke(k.id)}>Revoke</button>

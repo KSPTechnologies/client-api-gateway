@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDate } from '../utils';
 
 interface ErrorEntry {
   id: number;
@@ -130,7 +131,7 @@ export default function Errors() {
                   <td>{e.error_message}</td>
                   <td><span className="badge error">{e.error_code}</span></td>
                   <td>{e.retry_count}</td>
-                  <td>{new Date(e.created_at).toLocaleString()}</td>
+                  <td>{formatDate(e.created_at)}</td>
                 </tr>
               ))}
             </tbody>

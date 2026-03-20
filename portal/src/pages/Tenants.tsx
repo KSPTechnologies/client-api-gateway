@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDateShort } from '../utils';
 
 interface TenantEndpoint {
   endpoint_type: string;
@@ -136,7 +137,7 @@ export default function Tenants() {
                     <td>{t.active_keys}</td>
                     <td>{t.endpoints.filter((e) => e.enabled).length} enabled</td>
                     <td><span className={`badge ${t.active ? 'active' : 'inactive'}`}>{t.active ? 'Active' : 'Inactive'}</span></td>
-                    <td>{new Date(t.created_at).toLocaleDateString()}</td>
+                    <td>{formatDateShort(t.created_at)}</td>
                   </tr>
                   {expandedId === t.id && (
                     <tr key={`${t.id}-detail`}>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDate } from '../utils';
 
 interface DashboardData {
   tenants: number;
@@ -109,7 +110,7 @@ export default function Dashboard() {
                     <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{err.method} {err.endpoint}</td>
                     <td style={{ fontSize: 13, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{err.error_message}</td>
                     <td><span className="badge error">{err.error_code}</span></td>
-                    <td>{new Date(err.created_at).toLocaleString()}</td>
+                    <td>{formatDate(err.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -144,7 +145,7 @@ export default function Dashboard() {
                     {req.status_code}
                   </td>
                   <td style={{ fontSize: 13, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req.error_message || '—'}</td>
-                  <td>{new Date(req.created_at).toLocaleString()}</td>
+                  <td>{formatDate(req.created_at)}</td>
                 </tr>
               ))}
             </tbody>

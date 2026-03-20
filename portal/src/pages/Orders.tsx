@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDate } from '../utils';
 
 interface Order {
   id: string;
@@ -103,7 +104,7 @@ export default function Orders() {
                   <td style={{ fontSize: 12, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#c62828' }}>
                     {o.status === 'error' ? (o.last_error || 'Unknown error') : '—'}
                   </td>
-                  <td>{new Date(o.created_at).toLocaleString()}</td>
+                  <td>{formatDate(o.created_at)}</td>
                 </tr>
               ))}
             </tbody>
