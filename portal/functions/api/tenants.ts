@@ -82,3 +82,53 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return Response.json({ id, name: body.name, endpoints: generatedEndpoints }, { status: 201 });
 };
+
+// PUT /api/tenants — update a tenant
+export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
+  const body = await request.json() as {
+    id: string;
+    name?: string;
+    callback_url?: string;
+    logiwa_sandbox_client_id?: string;
+    logiwa_prod_client_id?: string;
+    active?: number;
+    endpoints?: string[];
+  };
+
+  if (!body.id) {
+    return Response.json({ error: 'Missing required field: id' }, { status: 400 });
+  }
+
+  // Update tenant fields
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (body.name !== undefined) { updates.push('name = ?'); params.push(body.name); }
+  if (body.callback_url !== undefined) { updates.push('callback_url = ?'); params.push(body.callback_url || null); }
+  if (body.logiwa_sandbox_client_id !== undefined) { updates.push('logiwa_sandbox_client_id = ?'); params.push(body.logiwa_sandbox_client_id || null); }
+  if (body.logiwa_prod_client_id !== undefined) { updates.push('logiwa_prod_client_id = ?'); params.push(body.logiwa_prod_client_id || null); }
+  if (body.active !== undefined) { updates.push('active = ?'); params.push(body.active); }
+
+  if (updates.length > 0) {
+    updates.push("updated_at = datetime('now')");
+    params.push(body.id);
+    await env.DB.prepare(
+      `UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...params).run();
+  }
+
+  // Update endpoints if provided
+  if (body.endpoints !== undefined) {
+    // Remove existing
+    await env.DB.prepare('DELETE FROM tenant_endpoints WHERE tenant_id = ?').bind(body.id).run();
+    // Insert new
+    for (const epType of body.endpoints) {
+      await env.DB.prepare(
+        `INSERT INTO tenant_endpoints (tenant_id, endpoint_type, enabled, created_at)
+         VALUES (?, ?, 1, datetime('now'))`
+      ).bind(body.id, epType).run();
+    }
+  }
+
+  return Response.json({ updated: true });
+};

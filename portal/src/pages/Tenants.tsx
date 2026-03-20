@@ -55,6 +55,13 @@ export default function Tenants() {
   const [showModal, setShowModal] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState<CreateForm>({ ...emptyForm });
+  const [editTenant, setEditTenant] = useState<Tenant | null>(null);
+  const [editForm, setEditForm] = useState<{
+    callback_url: string;
+    logiwa_sandbox_client_id: string;
+    logiwa_prod_client_id: string;
+    endpoints: string[];
+  }>({ callback_url: '', logiwa_sandbox_client_id: '', logiwa_prod_client_id: '', endpoints: [] });
   const [sandboxClients, setSandboxClients] = useState<LogiwaClient[]>([]);
   const [prodClients, setProdClients] = useState<LogiwaClient[]>([]);
 
@@ -96,6 +103,29 @@ export default function Tenants() {
     if (res.ok) {
       setShowModal(false);
       setForm({ ...emptyForm });
+      loadTenants();
+    }
+  };
+
+  const openEdit = (t: Tenant) => {
+    setEditTenant(t);
+    setEditForm({
+      callback_url: t.callback_url || '',
+      logiwa_sandbox_client_id: t.logiwa_sandbox_client_id || '',
+      logiwa_prod_client_id: t.logiwa_prod_client_id || '',
+      endpoints: t.endpoints.filter((e) => e.enabled).map((e) => e.endpoint_type),
+    });
+  };
+
+  const handleEdit = async () => {
+    if (!editTenant) return;
+    const res = await fetch('/api/tenants', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editTenant.id, ...editForm }),
+    });
+    if (res.ok) {
+      setEditTenant(null);
       loadTenants();
     }
   };
@@ -185,6 +215,13 @@ export default function Tenants() {
                           {t.callback_url && (
                             <p style={{ marginTop: 8 }}><strong>Callback URL:</strong> <span style={{ fontFamily: 'monospace' }}>{t.callback_url}</span></p>
                           )}
+                          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <strong>Logiwa Sandbox:</strong> <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{t.logiwa_sandbox_client_id || 'Not set'}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <strong>Logiwa Production:</strong> <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{t.logiwa_prod_client_id || 'Not set'}</span>
+                          </div>
+                          <button className="btn btn-primary btn-sm" style={{ marginTop: 12 }} onClick={(e) => { e.stopPropagation(); openEdit(t); }}>Edit Client</button>
                         </div>
                       </td>
                     </tr>
@@ -284,6 +321,78 @@ export default function Tenants() {
             <div className="modal-actions">
               <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleCreate} disabled={!form.name || !form.logiwa_sandbox_client_id}>Create Client</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editTenant && (
+        <div className="modal-overlay" onClick={() => setEditTenant(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
+            <h2>Edit: {editTenant.name}</h2>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Logiwa Client Mapping</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label>Sandbox Client</label>
+                  <select value={editForm.logiwa_sandbox_client_id} onChange={(e) => setEditForm({ ...editForm, logiwa_sandbox_client_id: e.target.value })}>
+                    <option value="">Select sandbox client...</option>
+                    {sandboxClients.map((c) => (
+                      <option key={c.identifier} value={c.identifier}>{c.displayName}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Production Client</label>
+                  <select value={editForm.logiwa_prod_client_id} onChange={(e) => setEditForm({ ...editForm, logiwa_prod_client_id: e.target.value })}>
+                    <option value="">Select production client...</option>
+                    {prodClients.map((c) => (
+                      <option key={c.identifier} value={c.identifier}>{c.displayName}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Callback URL (optional)</label>
+              <input value={editForm.callback_url} onChange={(e) => setEditForm({ ...editForm, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+            </div>
+
+            <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Endpoint Functions</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {ENDPOINT_OPTIONS.map((ep) => (
+                  <label key={ep.type} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                    padding: '8px 12px', border: '1px solid #eee', borderRadius: 6, cursor: 'pointer',
+                    background: editForm.endpoints.includes(ep.type) ? '#e3f2fd' : '#fff',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={editForm.endpoints.includes(ep.type)}
+                      onChange={() => {
+                        setEditForm((f) => ({
+                          ...f,
+                          endpoints: f.endpoints.includes(ep.type)
+                            ? f.endpoints.filter((e) => e !== ep.type)
+                            : [...f.endpoints, ep.type],
+                        }));
+                      }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{ep.label}</div>
+                      <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{ep.method} {ep.path}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setEditTenant(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEdit}>Save Changes</button>
             </div>
           </div>
         </div>
