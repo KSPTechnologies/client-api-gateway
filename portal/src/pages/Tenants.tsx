@@ -29,6 +29,7 @@ interface LogiwaClient {
 
 const ENDPOINT_OPTIONS = [
   { type: 'create_order', label: 'Submit Customer Orders', method: 'POST', path: '/v1/orders' },
+  { type: 'bulk_orders', label: 'Bulk Submit Orders (max 50)', method: 'POST', path: '/v1/orders/bulk' },
   { type: 'get_order', label: 'Request Order Status', method: 'GET', path: '/v1/orders/:id' },
   { type: 'tracking', label: 'Get Tracking', method: 'GET', path: '/v1/orders/:id/tracking' },
   { type: 'inventory', label: 'Request Inventory', method: 'POST', path: '/v1/inventory/query' },
