@@ -54,7 +54,12 @@ export async function handleTracking(
           };
         }
       } catch (err) {
-        console.error('Logiwa tracking fetch failed:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('Logiwa tracking fetch failed:', errMsg);
+        await env.DB.prepare(
+          `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+           VALUES (?, ?, 'GET', ?, 502, 0, 0, datetime('now'))`
+        ).bind(tenant.tenantId, `/v1/orders/${orderId}/tracking`, errMsg).run();
       }
     }
   }

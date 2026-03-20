@@ -315,8 +315,10 @@ export async function createPurchaseOrder(
   creds: LogiwaCredentials,
   po: CreatePurchaseOrderInput
 ): Promise<{ identifier: string; status: number; message: string }> {
+  const today = new Date().toISOString().split('T')[0];
   const payload = {
     ...po,
+    purchaseOrderDate: po.purchaseOrderDate || today,
     clientIdentifier: creds.clientIdentifier,
     warehouseIdentifier: creds.warehouseIdentifier,
   };

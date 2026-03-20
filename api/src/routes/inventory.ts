@@ -62,7 +62,12 @@ export async function handleInventory(
               .run();
           }
         } catch (err) {
-          console.error('Logiwa inventory query failed:', err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error('Logiwa inventory query failed:', errMsg);
+          await env.DB.prepare(
+            `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+             VALUES (?, '/v1/inventory/query', 'POST', ?, 502, 0, 0, datetime('now'))`
+          ).bind(tenant.tenantId, errMsg).run();
         }
       }
     }

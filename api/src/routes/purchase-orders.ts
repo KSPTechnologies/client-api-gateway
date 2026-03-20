@@ -71,12 +71,19 @@ export async function handlePurchaseOrders(
         message: 'Purchase order created in Logiwa',
       }, { status: 201 });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create purchase order';
+      const errMsg = err instanceof Error ? err.message : 'Failed to create purchase order';
+      console.error('Logiwa create PO failed:', errMsg);
+
+      await env.DB.prepare(
+        `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+         VALUES (?, '/v1/purchase-orders', 'POST', ?, 502, 0, 0, datetime('now'))`
+      ).bind(tenant.tenantId, errMsg).run();
+
       return Response.json({
         purchaseOrderId: poId,
         code: po.code,
         status: 'error',
-        message,
+        message: errMsg,
       }, { status: 502 });
     }
   }
