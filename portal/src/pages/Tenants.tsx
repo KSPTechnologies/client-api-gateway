@@ -13,6 +13,7 @@ interface Tenant {
   callback_url: string | null;
   active: number;
   active_keys: number;
+  logiwa_environment: 'sandbox' | 'production';
   created_at: string;
   updated_at: string;
   endpoints: TenantEndpoint[];
@@ -94,6 +95,7 @@ export default function Tenants() {
               <tr>
                 <th>Name</th>
                 <th>Base URL</th>
+                <th>Environment</th>
                 <th>Active Keys</th>
                 <th>Endpoints</th>
                 <th>Status</th>
@@ -106,6 +108,11 @@ export default function Tenants() {
                   <tr key={t.id} onClick={() => setExpandedId(expandedId === t.id ? null : t.id)} style={{ cursor: 'pointer' }}>
                     <td><strong>{t.name}</strong><br /><span style={{ fontSize: 11, color: '#999' }}>{t.id}</span></td>
                     <td>{t.base_url || '—'}</td>
+                    <td>
+                      <span className={`badge ${t.logiwa_environment === 'production' ? 'error' : 'fulfilled'}`}>
+                        {(t.logiwa_environment || 'sandbox').toUpperCase()}
+                      </span>
+                    </td>
                     <td>{t.active_keys}</td>
                     <td>{t.endpoints.filter((e) => e.enabled).length} enabled</td>
                     <td><span className={`badge ${t.active ? 'active' : 'inactive'}`}>{t.active ? 'Active' : 'Inactive'}</span></td>
@@ -113,8 +120,30 @@ export default function Tenants() {
                   </tr>
                   {expandedId === t.id && (
                     <tr key={`${t.id}-detail`}>
-                      <td colSpan={6} style={{ background: '#fafafa', padding: '16px 24px' }}>
+                      <td colSpan={7} style={{ background: '#fafafa', padding: '16px 24px' }}>
                         <div style={{ fontSize: 13 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                            <strong>Logiwa Environment:</strong>
+                            <button
+                              className={`env-switch ${t.logiwa_environment === 'production' ? 'production' : 'sandbox'}`}
+                              style={{ width: 'auto', padding: '4px 12px', fontSize: 11 }}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const newEnv = t.logiwa_environment === 'production' ? 'sandbox' : 'production';
+                                if (newEnv === 'production' && !confirm(`Switch ${t.name} to PRODUCTION? Their API requests will hit the live Logiwa system.`)) return;
+                                await fetch('/api/environment', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ tenant_id: t.id, environment: newEnv }),
+                                });
+                                loadTenants();
+                              }}
+                            >
+                              <span className="env-dot" />
+                              <span className="env-text">{(t.logiwa_environment || 'sandbox').toUpperCase()}</span>
+                            </button>
+                            <span style={{ color: '#888', fontSize: 11 }}>Click to switch</span>
+                          </div>
                           <strong>Enabled Endpoints:</strong>
                           {t.endpoints.filter((e) => e.enabled).length === 0 ? (
                             <span style={{ color: '#999', marginLeft: 8 }}>None configured</span>

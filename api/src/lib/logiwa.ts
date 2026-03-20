@@ -20,20 +20,13 @@ export interface LogiwaToken {
   expiresAt: number;
 }
 
-// ── Environment Toggle ───────────────────────────────
+// ── Environment ──────────────────────────────────────
 
 export type LogiwaEnvironment = 'sandbox' | 'production';
 
-export async function getActiveEnvironment(env: Env): Promise<LogiwaEnvironment> {
-  const stored = await env.KV.get('logiwa:environment');
-  return (stored === 'production') ? 'production' : 'sandbox';
-}
-
 // ── Credential Fetching ──────────────────────────────
 
-export async function getLogiwaCredentials(env: Env): Promise<LogiwaCredentials | null> {
-  const environment = await getActiveEnvironment(env);
-
+export function getLogiwaCredentials(env: Env, environment: LogiwaEnvironment): LogiwaCredentials | null {
   if (environment === 'production') {
     if (!env.LOGIWA_PROD_API_URL || !env.LOGIWA_PROD_USERNAME || !env.LOGIWA_PROD_PASSWORD) {
       return null;
@@ -47,7 +40,6 @@ export async function getLogiwaCredentials(env: Env): Promise<LogiwaCredentials 
     };
   }
 
-  // Sandbox (default)
   if (!env.LOGIWA_SANDBOX_API_URL || !env.LOGIWA_SANDBOX_USERNAME || !env.LOGIWA_SANDBOX_PASSWORD) {
     return null;
   }
@@ -58,6 +50,16 @@ export async function getLogiwaCredentials(env: Env): Promise<LogiwaCredentials 
     clientIdentifier: env.LOGIWA_SANDBOX_CLIENT_IDENTIFIER,
     warehouseIdentifier: env.LOGIWA_SANDBOX_WAREHOUSE_IDENTIFIER,
   };
+}
+
+/**
+ * Look up a tenant's configured Logiwa environment from D1.
+ */
+export async function getTenantEnvironment(env: Env, tenantId: string): Promise<LogiwaEnvironment> {
+  const row = await env.DB.prepare(
+    'SELECT logiwa_environment FROM tenants WHERE id = ?'
+  ).bind(tenantId).first();
+  return (row?.logiwa_environment === 'production') ? 'production' : 'sandbox';
 }
 
 // ── Token Management ─────────────────────────────────

@@ -2,7 +2,7 @@ import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { inventoryQuerySchema } from '../lib/validate';
 import { badRequest, methodNotAllowed } from '../lib/errors';
-import { getLogiwaCredentials, queryInventory } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantEnvironment, queryInventory } from '../lib/logiwa';
 
 export async function handleInventory(
   request: Request,
@@ -41,7 +41,8 @@ export async function handleInventory(
 
     // For cache misses, query Logiwa live and backfill cache
     if (missedSkus.length > 0) {
-      const creds = await getLogiwaCredentials(env);
+      const tenantEnv = await getTenantEnvironment(env, tenant.tenantId);
+      const creds = getLogiwaCredentials(env, tenantEnv);
       if (creds) {
         try {
           const liveItems = await queryInventory(creds, missedSkus);

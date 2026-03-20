@@ -1,7 +1,7 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { notFound, methodNotAllowed } from '../lib/errors';
-import { getLogiwaCredentials, getShipmentOrder } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantEnvironment, getShipmentOrder } from '../lib/logiwa';
 
 export async function handleTracking(
   request: Request,
@@ -36,7 +36,8 @@ export async function handleTracking(
   let estimatedDelivery: string | null = null;
 
   if (order.logiwa_order_id) {
-    const creds = await getLogiwaCredentials(env);
+    const tenantEnv = await getTenantEnvironment(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env, tenantEnv);
     if (creds) {
       try {
         const logiwaOrder = await getShipmentOrder(creds, order.logiwa_order_id as string);

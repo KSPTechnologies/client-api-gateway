@@ -1,22 +1,25 @@
 interface Env {
-  KV: KVNamespace;
+  DB: D1Database;
 }
 
-// GET /api/environment — get current Logiwa environment
-export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
-  const current = await env.KV.get('logiwa:environment') || 'sandbox';
-  return Response.json({ environment: current });
-};
-
-// POST /api/environment — toggle Logiwa environment
+// POST /api/environment — toggle a client's Logiwa environment
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  const body = await request.json() as { environment: 'sandbox' | 'production' };
+  const body = await request.json() as {
+    tenant_id: string;
+    environment: 'sandbox' | 'production';
+  };
+
+  if (!body.tenant_id) {
+    return Response.json({ error: 'Missing tenant_id' }, { status: 400 });
+  }
 
   if (body.environment !== 'sandbox' && body.environment !== 'production') {
     return Response.json({ error: 'Must be "sandbox" or "production"' }, { status: 400 });
   }
 
-  await env.KV.put('logiwa:environment', body.environment);
+  await env.DB.prepare(
+    `UPDATE tenants SET logiwa_environment = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(body.environment, body.tenant_id).run();
 
-  return Response.json({ environment: body.environment });
+  return Response.json({ tenant_id: body.tenant_id, environment: body.environment });
 };

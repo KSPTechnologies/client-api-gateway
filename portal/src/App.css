@@ -328,24 +328,7 @@ tr:hover {
   color: #e74c3c;
 }
 
-/* Environment Toggle */
-.env-toggle {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 16px 20px;
-  border-top: 1px solid #2a2a4a;
-}
-
-.env-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #666;
-  margin-bottom: 8px;
-}
-
+/* Environment Switch */
 .env-switch {
   width: 100%;
   padding: 8px 12px;
@@ -396,19 +379,3 @@ tr:hover {
   box-shadow: 0 0 6px #f87171;
 }
 
-.sidebar {
-  position: relative;
-  padding-bottom: 80px;
-}
-
-/* Production Banner */
-.prod-banner {
-  background: #dc2626;
-  color: #fff;
-  text-align: center;
-  padding: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  margin: -24px -24px 24px -24px;
-}

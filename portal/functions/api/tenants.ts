@@ -15,7 +15,7 @@ const ENDPOINT_TYPES = [
 // GET /api/tenants — list all tenants with key counts and enabled endpoints
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   const tenants = await env.DB.prepare(
-    `SELECT t.id, t.name, t.base_url, t.callback_url, t.active, t.created_at, t.updated_at,
+    `SELECT t.id, t.name, t.base_url, t.callback_url, t.active, t.logiwa_environment, t.created_at, t.updated_at,
        (SELECT COUNT(*) FROM api_keys ak WHERE ak.tenant_id = t.id AND ak.active = 1) as active_keys
      FROM tenants t ORDER BY t.created_at DESC`
   ).all();
