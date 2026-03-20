@@ -1,8 +1,43 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
-import { createOrderSchema } from '../lib/validate';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, createShipmentOrder } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, LogiwaCredentials } from '../lib/logiwa';
+import { ApiError } from '../lib/errors';
+
+async function logiwaFetchDirect(
+  creds: LogiwaCredentials,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<any> {
+  // Get token
+  const tokenRes = await fetch(`${creds.apiUrl}/v3.1/Authorize/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: creds.username, password: creds.password }),
+  });
+  if (!tokenRes.ok) {
+    const errBody = await tokenRes.text();
+    throw new ApiError(502, `Logiwa auth failed (${tokenRes.status}): ${errBody}`, 'LOGIWA_AUTH_FAILED');
+  }
+  const tokenData = await tokenRes.json() as { token: string };
+
+  const res = await fetch(`${creds.apiUrl}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenData.token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new ApiError(502, `Logiwa API error (${res.status}): ${errBody}`, 'LOGIWA_API_ERROR');
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
 
 export async function handleOrders(
   request: Request,
@@ -12,76 +47,58 @@ export async function handleOrders(
 ): Promise<Response> {
   const method = request.method;
 
-  // POST /v1/orders — create order
+  // POST /v1/orders — create order (passthrough to Logiwa native schema)
   if (method === 'POST' && path === '/v1/orders') {
-    let body: unknown;
+    let body: Record<string, unknown>;
     try {
-      body = await request.json();
+      body = await request.json() as Record<string, unknown>;
     } catch {
       throw badRequest('Invalid JSON body');
     }
 
-    const parsed = createOrderSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
-      throw badRequest(`Validation failed: ${issues.join('; ')}`);
+    // Minimal validation — need at least code and line items
+    if (!body.code && !body.shipmentOrderLineList) {
+      throw badRequest('Missing required fields: code, shipmentOrderLineList');
     }
 
-    const order = parsed.data;
     const orderId = crypto.randomUUID();
+    const externalOrderId = (body.code as string) || orderId;
 
     // Store raw payload in R2
     const r2Key = `orders/${tenant.tenantId}/${orderId}/request.json`;
-    await env.R2.put(r2Key, JSON.stringify(order));
+    await env.R2.put(r2Key, JSON.stringify(body));
 
     // Insert order record in D1
     await env.DB.prepare(
       `INSERT INTO orders (id, tenant_id, external_order_id, status, request_payload_key, created_at, updated_at)
        VALUES (?, ?, ?, 'received', ?, datetime('now'), datetime('now'))`
     )
-      .bind(orderId, tenant.tenantId, order.externalOrderId, r2Key)
+      .bind(orderId, tenant.tenantId, externalOrderId, r2Key)
       .run();
 
-    // Forward to Logiwa
+    // Inject gateway fields — client sends everything else
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
+
     let logiwaOrderId: string | null = null;
     let status = 'received';
     let errorDetail: string | null = null;
 
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
-    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
     if (creds) {
+      // Build payload: client's body + our injected fields
+      const payload = {
+        ...body,
+        clientIdentifier: creds.clientIdentifier,
+        warehouseIdentifier: creds.warehouseIdentifier,
+        channelName: 'KSP API Gateway',
+        shipmentOrderType: body.shipmentOrderType || 'Sales Order',
+        shipmentOrderDate: body.shipmentOrderDate || new Date().toISOString().split('T')[0],
+        useSameAddress: body.useSameAddress !== undefined ? body.useSameAddress : true,
+      };
+
       try {
-        const nameParts = order.shipTo.name.split(' ');
-        const firstName = nameParts[0];
-        const lastName = nameParts.slice(1).join(' ') || nameParts[0];
-
-        const result = await createShipmentOrder(creds, {
-          code: order.externalOrderId,
-          customer: {
-            firstName,
-            lastName,
-            email: order.shipTo.email,
-          },
-          shipmentAddress: {
-            addressLine1: order.shipTo.address1,
-            addressLine2: order.shipTo.address2,
-            city: order.shipTo.city,
-            state: order.shipTo.state,
-            postalCode: order.shipTo.zip,
-            country: order.shipTo.country,
-            phoneNumber: order.shipTo.phone,
-          },
-          shipmentOrderLineList: order.items.map((item) => ({
-            sku: item.sku,
-            packType: item.packType,
-            packQuantity: item.quantity,
-            unitPrice: item.unitPrice,
-          })),
-          note: order.notes,
-          clientReferenceCode: order.referenceNumber,
-        });
-
-        logiwaOrderId = result.identifier;
+        const result = await logiwaFetchDirect(creds, 'POST', '/v3.1/ShipmentOrder/create', payload);
+        logiwaOrderId = result.value || result.data || null;
         status = 'sent';
 
         const responseKey = `orders/${tenant.tenantId}/${orderId}/response.json`;
@@ -103,7 +120,6 @@ export async function handleOrders(
           .bind(orderId)
           .run();
 
-        // Log to error_log for portal visibility
         await env.DB.prepare(
           `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
            VALUES (?, '/v1/orders', 'POST', ?, 502, 0, 0, datetime('now'))`
@@ -116,7 +132,7 @@ export async function handleOrders(
     return Response.json(
       {
         orderId,
-        externalOrderId: order.externalOrderId,
+        code: externalOrderId,
         logiwaOrderId,
         status,
         message: status === 'sent'
@@ -147,7 +163,7 @@ export async function handleOrders(
 
     return Response.json({
       orderId: row.id,
-      externalOrderId: row.external_order_id,
+      code: row.external_order_id,
       logiwaOrderId: row.logiwa_order_id,
       status: row.status,
       createdAt: row.created_at,

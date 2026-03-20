@@ -1,8 +1,42 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
-import { createPurchaseOrderSchema } from '../lib/validate';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, createPurchaseOrder, getPurchaseOrder, getPurchaseOrderReceipts } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, getPurchaseOrder, getPurchaseOrderReceipts, LogiwaCredentials } from '../lib/logiwa';
+import { ApiError } from '../lib/errors';
+
+async function logiwaFetchDirect(
+  creds: LogiwaCredentials,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<any> {
+  const tokenRes = await fetch(`${creds.apiUrl}/v3.1/Authorize/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: creds.username, password: creds.password }),
+  });
+  if (!tokenRes.ok) {
+    const errBody = await tokenRes.text();
+    throw new ApiError(502, `Logiwa auth failed (${tokenRes.status}): ${errBody}`, 'LOGIWA_AUTH_FAILED');
+  }
+  const tokenData = await tokenRes.json() as { token: string };
+
+  const res = await fetch(`${creds.apiUrl}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenData.token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new ApiError(502, `Logiwa API error (${res.status}): ${errBody}`, 'LOGIWA_API_ERROR');
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
 
 export async function handlePurchaseOrders(
   request: Request,
@@ -14,59 +48,48 @@ export async function handlePurchaseOrders(
   const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
   const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
-  // POST /v1/purchase-orders — create purchase order
+  // POST /v1/purchase-orders — passthrough to Logiwa native schema
   if (method === 'POST' && path === '/v1/purchase-orders') {
-    let body: unknown;
+    let body: Record<string, unknown>;
     try {
-      body = await request.json();
+      body = await request.json() as Record<string, unknown>;
     } catch {
       throw badRequest('Invalid JSON body');
     }
 
-    const parsed = createPurchaseOrderSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
-      throw badRequest(`Validation failed: ${issues.join('; ')}`);
+    if (!body.code && !body.purchaseOrderLineList) {
+      throw badRequest('Missing required fields: code, purchaseOrderLineList');
     }
 
-    const po = parsed.data;
-
-    // Store raw payload in R2
     const poId = crypto.randomUUID();
+    const poCode = (body.code as string) || poId;
+
     const r2Key = `purchase-orders/${tenant.tenantId}/${poId}/request.json`;
-    await env.R2.put(r2Key, JSON.stringify(po));
+    await env.R2.put(r2Key, JSON.stringify(body));
 
     if (!creds) {
       throw badRequest('Logiwa credentials not configured for this environment');
     }
 
-    try {
-      const result = await createPurchaseOrder(creds, {
-        code: po.code,
-        vendor: po.vendor,
-        purchaseOrderDate: po.purchaseOrderDate,
-        plannedReceivingDate: po.plannedReceivingDate,
-        plannedArrivalDate: po.plannedArrivalDate,
-        referenceNumber: po.referenceNumber,
-        purchaseOrderLineList: po.items.map((item) => ({
-          sku: item.sku,
-          packType: item.packType,
-          packQuantity: item.quantity,
-          unitPrice: item.unitPrice,
-          lotBatchNumber: item.lotBatchNumber,
-        })),
-        vendorBillingAddress: po.vendorBillingAddress,
-        vendorShipmentAddress: po.vendorShipmentAddress,
-      });
+    // Inject gateway fields
+    const payload = {
+      ...body,
+      clientIdentifier: creds.clientIdentifier,
+      warehouseIdentifier: creds.warehouseIdentifier,
+      purchaseOrderDate: body.purchaseOrderDate || new Date().toISOString().split('T')[0],
+    };
 
-      // Store response in R2
+    try {
+      const result = await logiwaFetchDirect(creds, 'POST', '/v3.1/PurchaseOrder/create', payload);
+      const logiwaId = result.value || result.data || null;
+
       const responseKey = `purchase-orders/${tenant.tenantId}/${poId}/response.json`;
       await env.R2.put(responseKey, JSON.stringify(result));
 
       return Response.json({
         purchaseOrderId: poId,
-        logiwaIdentifier: result.identifier,
-        code: po.code,
+        logiwaIdentifier: logiwaId,
+        code: poCode,
         status: 'sent',
         message: 'Purchase order created in Logiwa',
       }, { status: 201 });
@@ -81,7 +104,7 @@ export async function handlePurchaseOrders(
 
       return Response.json({
         purchaseOrderId: poId,
-        code: po.code,
+        code: poCode,
         status: 'error',
         message: errMsg,
       }, { status: 502 });
@@ -102,7 +125,7 @@ export async function handlePurchaseOrders(
       if (!po) throw notFound(`Purchase order ${poIdentifier} not found`);
       return Response.json(po);
     } catch (err) {
-      if (err instanceof Error && err.message.includes('not found')) throw err;
+      if (err instanceof ApiError && err.code === 'NOT_FOUND') throw err;
       throw notFound(`Purchase order ${poIdentifier} not found`);
     }
   }
