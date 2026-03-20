@@ -7,6 +7,7 @@ interface Order {
   external_order_id: string | null;
   logiwa_order_id: string | null;
   status: string;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -84,12 +85,12 @@ export default function Orders() {
           <table>
             <thead>
               <tr>
-                <th>Tenant</th>
+                <th>Client</th>
                 <th>External ID</th>
                 <th>Logiwa ID</th>
                 <th>Status</th>
+                <th>Error</th>
                 <th>Created</th>
-                <th>Updated</th>
               </tr>
             </thead>
             <tbody>
@@ -99,8 +100,10 @@ export default function Orders() {
                   <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{o.external_order_id || '—'}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{o.logiwa_order_id || '—'}</td>
                   <td><span className={`badge ${o.status}`}>{o.status}</span></td>
+                  <td style={{ fontSize: 12, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#c62828' }}>
+                    {o.status === 'error' ? (o.last_error || 'Unknown error') : '—'}
+                  </td>
                   <td>{new Date(o.created_at).toLocaleString()}</td>
-                  <td>{new Date(o.updated_at).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

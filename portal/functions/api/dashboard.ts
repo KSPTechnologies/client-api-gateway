@@ -4,7 +4,7 @@ interface Env {
 
 // GET /api/dashboard — aggregated stats for the dashboard
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
-  const [tenants, orders, errors, recentRequests] = await Promise.all([
+  const [tenants, orders, errors, recentRequests, recentErrors] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) as count FROM tenants WHERE active = 1').first(),
     env.DB.prepare(`
       SELECT
@@ -18,8 +18,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     `).first(),
     env.DB.prepare('SELECT COUNT(*) as unresolved FROM error_log WHERE resolved = 0').first(),
     env.DB.prepare(`
-      SELECT tenant_id, method, path, status_code, error_message, created_at
-      FROM request_log ORDER BY created_at DESC LIMIT 20
+      SELECT r.tenant_id, t.name as tenant_name, r.method, r.path, r.status_code, r.error_message, r.created_at
+      FROM request_log r
+      LEFT JOIN tenants t ON r.tenant_id = t.id
+      ORDER BY r.created_at DESC LIMIT 20
+    `).all(),
+    env.DB.prepare(`
+      SELECT e.id, e.tenant_id, t.name as tenant_name, e.endpoint, e.method, e.error_message, e.error_code, e.created_at
+      FROM error_log e
+      LEFT JOIN tenants t ON e.tenant_id = t.id
+      WHERE e.resolved = 0
+      ORDER BY e.created_at DESC LIMIT 10
     `).all(),
   ]);
 
@@ -28,5 +37,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     orders: orders || { total: 0, received: 0, sent: 0, fulfilled: 0, closed: 0, error: 0 },
     unresolvedErrors: (errors as { unresolved: number })?.unresolved || 0,
     recentRequests: recentRequests.results,
+    recentErrors: recentErrors.results,
   });
 };

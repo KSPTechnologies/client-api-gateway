@@ -11,7 +11,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const pageSize = 50;
   const offset = (page - 1) * pageSize;
 
-  let query = `SELECT o.*, t.name as tenant_name FROM orders o JOIN tenants t ON o.tenant_id = t.id WHERE 1=1`;
+  let query = `SELECT o.*, t.name as tenant_name,
+    (SELECT e.error_message FROM error_log e WHERE e.tenant_id = o.tenant_id AND e.endpoint = '/v1/orders' AND e.resolved = 0 ORDER BY e.created_at DESC LIMIT 1) as last_error
+    FROM orders o JOIN tenants t ON o.tenant_id = t.id WHERE 1=1`;
   const params: unknown[] = [];
 
   if (tenantId) {
