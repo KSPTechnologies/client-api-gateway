@@ -27,17 +27,16 @@ interface LogiwaClient {
 }
 
 const ENDPOINT_OPTIONS = [
-  { type: 'create_order', label: 'Create Order', method: 'POST', path: '/v1/orders' },
-  { type: 'get_order', label: 'Get Order Status', method: 'GET', path: '/v1/orders/:id' },
+  { type: 'create_order', label: 'Submit Customer Orders', method: 'POST', path: '/v1/orders' },
+  { type: 'get_order', label: 'Request Order Status', method: 'GET', path: '/v1/orders/:id' },
   { type: 'tracking', label: 'Get Tracking', method: 'GET', path: '/v1/orders/:id/tracking' },
-  { type: 'inventory', label: 'Query Inventory', method: 'POST', path: '/v1/inventory/query' },
-  { type: 'create_po', label: 'Create Purchase Order (future)', method: 'POST', path: '/v1/purchase-orders', future: true },
-  { type: 'webhooks', label: 'Webhook Subscriptions (future)', method: 'POST', path: '/v1/webhooks', future: true },
+  { type: 'inventory', label: 'Request Inventory', method: 'POST', path: '/v1/inventory/query' },
+  { type: 'create_po', label: 'Submit Purchase Orders', method: 'POST', path: '/v1/purchase-orders' },
+  { type: 'po_receipts', label: 'Get PO Receipts', method: 'GET', path: '/v1/purchase-orders/:id/receipts' },
 ];
 
 interface CreateForm {
   name: string;
-  base_url: string;
   callback_url: string;
   endpoints: string[];
   logiwa_sandbox_client_id: string;
@@ -45,7 +44,7 @@ interface CreateForm {
 }
 
 const emptyForm: CreateForm = {
-  name: '', base_url: '', callback_url: '', endpoints: [],
+  name: '', callback_url: '', endpoints: [],
   logiwa_sandbox_client_id: '', logiwa_prod_client_id: '',
 };
 
@@ -117,7 +116,6 @@ export default function Tenants() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Base URL</th>
                 <th>Environment</th>
                 <th>Active Keys</th>
                 <th>Endpoints</th>
@@ -130,7 +128,6 @@ export default function Tenants() {
                 <>
                   <tr key={t.id} onClick={() => setExpandedId(expandedId === t.id ? null : t.id)} style={{ cursor: 'pointer' }}>
                     <td><strong>{t.name}</strong><br /><span style={{ fontSize: 11, color: '#999' }}>{t.id}</span></td>
-                    <td>{t.base_url || '—'}</td>
                     <td>
                       <span className={`badge ${t.logiwa_environment === 'production' ? 'error' : 'fulfilled'}`}>
                         {(t.logiwa_environment || 'sandbox').toUpperCase()}
@@ -143,7 +140,7 @@ export default function Tenants() {
                   </tr>
                   {expandedId === t.id && (
                     <tr key={`${t.id}-detail`}>
-                      <td colSpan={7} style={{ background: '#fafafa', padding: '16px 24px' }}>
+                      <td colSpan={6} style={{ background: '#fafafa', padding: '16px 24px' }}>
                         <div style={{ fontSize: 13 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
                             <strong>Logiwa Environment:</strong>
@@ -203,25 +200,16 @@ export default function Tenants() {
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
             <h2>Add Client</h2>
 
-            <div className="form-group">
-              <label>Client Name</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Acme Corp" />
-            </div>
-            <div className="form-group">
-              <label>Base URL</label>
-              <input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="e.g. acme.com" />
-            </div>
-            <div className="form-group">
-              <label>Callback URL (optional — for tracking push notifications)</label>
-              <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
-            </div>
-
-            <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
+            <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Logiwa Client Mapping</label>
+              <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Select the Logiwa client for each environment. The client name will be used as the gateway client name.</p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group">
                   <label>Sandbox Client</label>
-                  <select value={form.logiwa_sandbox_client_id} onChange={(e) => setForm({ ...form, logiwa_sandbox_client_id: e.target.value })}>
+                  <select value={form.logiwa_sandbox_client_id} onChange={(e) => {
+                    const client = sandboxClients.find((c) => c.identifier === e.target.value);
+                    setForm({ ...form, logiwa_sandbox_client_id: e.target.value, name: client?.displayName || form.name });
+                  }}>
                     <option value="">Select sandbox client...</option>
                     {sandboxClients.map((c) => (
                       <option key={c.identifier} value={c.identifier}>{c.displayName}</option>
@@ -240,6 +228,17 @@ export default function Tenants() {
               </div>
             </div>
 
+            {form.name && (
+              <div style={{ background: '#f0f9ff', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 16 }}>
+                Client name: <strong>{form.name}</strong>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Callback URL (optional — for tracking push notifications)</label>
+              <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+            </div>
+
             <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
               <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Endpoint Functions</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -248,7 +247,6 @@ export default function Tenants() {
                     display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
                     padding: '8px 12px', border: '1px solid #eee', borderRadius: 6, cursor: 'pointer',
                     background: form.endpoints.includes(ep.type) ? '#e3f2fd' : '#fff',
-                    opacity: (ep as any).future ? 0.5 : 1,
                   }}>
                     <input
                       type="checkbox"
@@ -264,19 +262,17 @@ export default function Tenants() {
               </div>
             </div>
 
-            {form.endpoints.length > 0 && form.base_url && (
+            {form.endpoints.length > 0 && (
               <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Generated Endpoints</label>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Enabled Endpoints</label>
                 <div style={{ background: '#1a1a2e', borderRadius: 6, padding: 12, fontSize: 12, fontFamily: 'monospace', color: '#a0a0c0' }}>
                   {form.endpoints.map((epType) => {
                     const def = ENDPOINT_OPTIONS.find((e) => e.type === epType);
                     if (!def) return null;
-                    const slug = def.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
                     return (
                       <div key={epType} style={{ marginBottom: 4 }}>
                         <span style={{ color: '#4a9eff' }}>{def.method}</span>{' '}
-                        <span style={{ color: '#4ade80' }}>{form.base_url}/{slug}</span>{' '}
-                        <span style={{ color: '#666' }}>→ {def.path}</span>
+                        <span style={{ color: '#4ade80' }}>connect.ksp3plhq.com{def.path}</span>
                       </div>
                     );
                   })}
@@ -286,7 +282,7 @@ export default function Tenants() {
 
             <div className="modal-actions">
               <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleCreate} disabled={!form.name}>Create Client</button>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={!form.name || !form.logiwa_sandbox_client_id}>Create Client</button>
             </div>
           </div>
         </div>

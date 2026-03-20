@@ -44,7 +44,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const body = await request.json() as {
     name: string;
-    base_url?: string;
     callback_url?: string;
     endpoints?: string[];
     logiwa_sandbox_client_id?: string;
@@ -58,10 +57,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const id = crypto.randomUUID();
 
   await env.DB.prepare(
-    `INSERT INTO tenants (id, name, base_url, logiwa_api_url, logiwa_credentials, callback_url, logiwa_sandbox_client_id, logiwa_prod_client_id, active, created_at, updated_at)
-     VALUES (?, ?, ?, '', '{}', ?, ?, ?, 1, datetime('now'), datetime('now'))`
+    `INSERT INTO tenants (id, name, logiwa_api_url, logiwa_credentials, callback_url, logiwa_sandbox_client_id, logiwa_prod_client_id, active, created_at, updated_at)
+     VALUES (?, ?, '', '{}', ?, ?, ?, 1, datetime('now'), datetime('now'))`
   )
-    .bind(id, body.name, body.base_url || null, body.callback_url || null, body.logiwa_sandbox_client_id || null, body.logiwa_prod_client_id || null)
+    .bind(id, body.name, body.callback_url || null, body.logiwa_sandbox_client_id || null, body.logiwa_prod_client_id || null)
     .run();
 
   // Insert selected endpoints
