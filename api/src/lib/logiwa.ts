@@ -177,6 +177,7 @@ export interface CreateShipmentOrderInput {
   }>;
   note?: string;
   clientReferenceCode?: string;
+  shipmentOrderType?: string;
   shipmentOrderDate?: string;
   expectedShipmentDate?: string;
 }
@@ -187,6 +188,8 @@ export async function createShipmentOrder(
 ): Promise<{ identifier: string; status: number; message: string }> {
   const payload = {
     ...order,
+    shipmentOrderType: order.shipmentOrderType || 'Sales Order',
+    shipmentOrderDate: order.shipmentOrderDate || new Date().toISOString().split('T')[0],
     clientIdentifier: creds.clientIdentifier,
     warehouseIdentifier: creds.warehouseIdentifier,
     useSameAddress: true,
