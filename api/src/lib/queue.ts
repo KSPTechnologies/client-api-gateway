@@ -12,7 +12,7 @@ export async function handleQueue(
   batch: MessageBatch,
   env: Env
 ): Promise<void> {
-  const creds = getLogiwaCredentials(env);
+  const creds = await getLogiwaCredentials(env);
 
   for (const message of batch.messages) {
     try {

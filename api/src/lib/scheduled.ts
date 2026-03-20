@@ -21,7 +21,7 @@ export async function handleScheduled(
 }
 
 async function syncTracking(env: Env): Promise<void> {
-  const creds = getLogiwaCredentials(env);
+  const creds = await getLogiwaCredentials(env);
   if (!creds) return;
 
   const { results: orders } = await env.DB.prepare(
@@ -84,7 +84,7 @@ async function syncTracking(env: Env): Promise<void> {
 }
 
 async function refreshInventoryCache(env: Env): Promise<void> {
-  const creds = getLogiwaCredentials(env);
+  const creds = await getLogiwaCredentials(env);
   if (!creds) return;
 
   const { results: tenants } = await env.DB.prepare(

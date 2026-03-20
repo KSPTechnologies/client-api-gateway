@@ -41,7 +41,7 @@ export async function handleInventory(
 
     // For cache misses, query Logiwa live and backfill cache
     if (missedSkus.length > 0) {
-      const creds = getLogiwaCredentials(env);
+      const creds = await getLogiwaCredentials(env);
       if (creds) {
         try {
           const liveItems = await queryInventory(creds, missedSkus);

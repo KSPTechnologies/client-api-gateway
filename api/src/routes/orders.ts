@@ -46,7 +46,7 @@ export async function handleOrders(
     let logiwaOrderId: string | null = null;
     let status = 'received';
 
-    const creds = getLogiwaCredentials(env);
+    const creds = await getLogiwaCredentials(env);
     if (creds) {
       try {
         const nameParts = order.shipTo.name.split(' ');

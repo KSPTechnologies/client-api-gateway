@@ -20,18 +20,43 @@ export interface LogiwaToken {
   expiresAt: number;
 }
 
+// ── Environment Toggle ───────────────────────────────
+
+export type LogiwaEnvironment = 'sandbox' | 'production';
+
+export async function getActiveEnvironment(env: Env): Promise<LogiwaEnvironment> {
+  const stored = await env.KV.get('logiwa:environment');
+  return (stored === 'production') ? 'production' : 'sandbox';
+}
+
 // ── Credential Fetching ──────────────────────────────
 
-export function getLogiwaCredentials(env: Env): LogiwaCredentials | null {
-  if (!env.LOGIWA_API_URL || !env.LOGIWA_USERNAME || !env.LOGIWA_PASSWORD) {
+export async function getLogiwaCredentials(env: Env): Promise<LogiwaCredentials | null> {
+  const environment = await getActiveEnvironment(env);
+
+  if (environment === 'production') {
+    if (!env.LOGIWA_PROD_API_URL || !env.LOGIWA_PROD_USERNAME || !env.LOGIWA_PROD_PASSWORD) {
+      return null;
+    }
+    return {
+      apiUrl: env.LOGIWA_PROD_API_URL,
+      username: env.LOGIWA_PROD_USERNAME,
+      password: env.LOGIWA_PROD_PASSWORD,
+      clientIdentifier: env.LOGIWA_PROD_CLIENT_IDENTIFIER,
+      warehouseIdentifier: env.LOGIWA_PROD_WAREHOUSE_IDENTIFIER,
+    };
+  }
+
+  // Sandbox (default)
+  if (!env.LOGIWA_SANDBOX_API_URL || !env.LOGIWA_SANDBOX_USERNAME || !env.LOGIWA_SANDBOX_PASSWORD) {
     return null;
   }
   return {
-    apiUrl: env.LOGIWA_API_URL,
-    username: env.LOGIWA_USERNAME,
-    password: env.LOGIWA_PASSWORD,
-    clientIdentifier: env.LOGIWA_CLIENT_IDENTIFIER,
-    warehouseIdentifier: env.LOGIWA_WAREHOUSE_IDENTIFIER,
+    apiUrl: env.LOGIWA_SANDBOX_API_URL,
+    username: env.LOGIWA_SANDBOX_USERNAME,
+    password: env.LOGIWA_SANDBOX_PASSWORD,
+    clientIdentifier: env.LOGIWA_SANDBOX_CLIENT_IDENTIFIER,
+    warehouseIdentifier: env.LOGIWA_SANDBOX_WAREHOUSE_IDENTIFIER,
   };
 }
 
