@@ -111,63 +111,171 @@ Submit a shipment order. The gateway automatically assigns the correct client, w
 | Field | Description |
 |-------|-------------|
 | `code` | Your unique order number (must be unique per order) |
-| `shipmentOrderLineList` | Array of line items with `sku` and `packQuantity` |
+| `shipmentOrderLineList` | Array of line items (at minimum `sku` and `packQuantity`) |
 
-### Optional Fields
+### Complete Field Reference — Order
 
-| Field | Description |
-|-------|-------------|
-| `customer` | Customer name and email |
-| `companyName` | Company name for the order |
-| `shipmentAddress` | Shipping address (country, state, addressLine1, city, postalCode) |
-| `billingAddress` | Billing address (same structure as shipmentAddress plus firstName, lastName, email, companyName) |
-| `useSameAddress` | Use shipping address as billing (default: `true`) |
-| `shipmentOrderDate` | Order date in ISO format (default: today) |
-| `expectedShipmentDate` | Requested ship date |
-| `expectedDeliveryDate` | Requested delivery date |
-| `clientReferenceCode` | Your internal reference/PO number |
-| `note` | Order notes |
-| `extraNote1` through `extraNote5` | Additional note fields |
-| `giftNote` | Gift message |
-| `gift` | Boolean — is this a gift order? |
-| `isSkipAddressVerification` | Skip address validation (default: `false`) |
-| `priority` | Order priority (integer) |
-| `packingInstructions` | Special packing instructions |
-| `channelOrderNumber` | Your channel/marketplace order number |
-| `shippingOptionDetails` | Carrier and shipping method (see below) |
-| `tags` | Array of tag identifiers |
-| `isPrimeOrder` | Boolean for priority/Prime orders |
+The full schema is available. Only `code` and `shipmentOrderLineList` are required — include any other fields you have data for, omit the rest.
 
-### Line Item Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | string | **Required.** Your unique order number |
+| `customer.firstName` | string | Customer first name |
+| `customer.lastName` | string | Customer last name |
+| `customer.email` | string | Customer email |
+| `companyName` | string | Company name |
+| `carrierReasonForExport` | string | Reason for export (international orders) |
+| `shipmentAddress.type` | string | Address type (e.g. "Residential", "Commercial") |
+| `shipmentAddress.country` | string | Country code (e.g. "US") |
+| `shipmentAddress.state` | string | State name or abbreviation |
+| `shipmentAddress.addressLine1` | string | Street address |
+| `shipmentAddress.addressLine2` | string | Suite, unit, etc. |
+| `shipmentAddress.city` | string | City |
+| `shipmentAddress.postalCode` | string | ZIP/postal code |
+| `shipmentAddress.phoneNumber` | string | Phone number |
+| `billingAddress.type` | string | Address type |
+| `billingAddress.country` | string | Country code |
+| `billingAddress.state` | string | State |
+| `billingAddress.addressLine1` | string | Street address |
+| `billingAddress.addressLine2` | string | Suite, unit, etc. |
+| `billingAddress.city` | string | City |
+| `billingAddress.postalCode` | string | ZIP/postal code |
+| `billingAddress.phoneNumber` | string | Phone number |
+| `billingAddress.firstName` | string | Billing first name |
+| `billingAddress.lastName` | string | Billing last name |
+| `billingAddress.email` | string | Billing email |
+| `billingAddress.companyName` | string | Billing company name |
+| `useSameAddress` | boolean | Use shipping as billing (default: `true`) |
+| `shipmentOrderDate` | string | Order date, ISO format (default: today) |
+| `expectedShipmentDate` | string | Requested ship date |
+| `expectedDeliveryDate` | string | Requested delivery date |
+| `clientReferenceCode` | string | Your internal reference/PO number |
+| `discount` | number | Order-level discount |
+| `note` | string | Order notes |
+| `extraNote1` | string | Additional note field 1 |
+| `extraNote2` | string | Additional note field 2 |
+| `extraNote3` | string | Additional note field 3 |
+| `extraNote4` | string | Additional note field 4 |
+| `extraNote5` | string | Additional note field 5 |
+| `giftNote` | string | Gift message |
+| `fraud` | string | Fraud check flag |
+| `isSkipAddressVerification` | boolean | Skip address validation (default: `false`) |
+| `gift` | boolean | Gift order flag |
+| `currencyId` | integer | Currency ID |
+| `isPrimeOrder` | boolean | Priority/Prime order flag |
+| `tags` | array | Array of tag identifier GUIDs |
+| `scheduledPickupDate` | string | Scheduled pickup date |
+| `actualPickupDate` | string | Actual pickup date |
+| `carrierId` | integer | Carrier ID |
+| `carrierSetupIdentifier` | string | Carrier setup GUID |
+| `shippingOptionIdentifier` | string | Shipping option GUID |
+| `internationalChargedAccountNumber` | string | International billing account |
+| `internationalChargedAccountCountryCode` | string | International billing country |
+| `internationalChargedAccountPostalCode` | string | International billing postal code |
+| `carrierBillingTypeId` | integer | Carrier billing type ID |
+| `carrierBillingTypeName` | string | Carrier billing type (e.g. "Prepaid") |
+| `carrierIntBillingTypeId` | integer | International carrier billing type ID |
+| `carrierIntBillingTypeName` | string | International carrier billing type name |
+| `chargedAccountNumber` | string | Domestic billing account number |
+| `chargedAccountCountryCode` | string | Domestic billing country |
+| `chargedAccountPostalCode` | string | Domestic billing postal code |
+| `packingInstructions` | string | Special packing instructions |
+| `currentTrackingNumber` | string | Pre-assigned tracking number |
+| `trackingNumbers` | array | Array of tracking number strings |
+| `totalShippingCost` | number | Total shipping cost |
+| `carrierPackageIdentifier` | string | Carrier package type GUID |
+| `carrierPackageName` | string | Carrier package type name |
+| `isAllowSaturdayDelivery` | boolean | Allow Saturday delivery |
+| `priority` | integer | Order priority |
+| `customFieldDateTime1` | string | Custom date field 1 |
+| `customFieldDateTime2` | string | Custom date field 2 |
+| `customFieldDateTime3` | string | Custom date field 3 |
+| `customFieldToggle1` | boolean | Custom toggle field 1 |
+| `customFieldToggle2` | boolean | Custom toggle field 2 |
+| `customFieldDropDown1` | string | Custom dropdown field 1 |
+| `customFieldDropDown2` | string | Custom dropdown field 2 |
+| `customFieldTextBox1` | string | Custom text field 1 |
+| `customFieldTextBox2` | string | Custom text field 2 |
+| `customFieldTextBox3` | string | Custom text field 3 |
+| `channelOrderNumber` | string | Your channel/marketplace order number |
+| `channelSetupIdentifier` | string | Channel setup GUID |
+| `isManualChargedAccount` | boolean | Manual domestic billing account flag |
+| `isManualIntChargedAccount` | boolean | Manual international billing account flag |
+| `packingWarningTypeIdentifier` | string | Packing warning type GUID |
+| `packingWarningTypeName` | string | Packing warning type name |
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `sku` | Yes | Product SKU (must exist in the system) |
-| `packQuantity` | Yes | Quantity to ship |
-| `packType` | No | Pack type (e.g. "Unit", "Case"). If omitted, uses the product's default |
-| `unitPrice` | No | Unit price |
-| `unitTax` | No | Tax per unit |
-| `unitDiscount` | No | Discount per unit |
-| `taxIncluded` | No | Whether unitPrice includes tax |
-| `lotBatchNumber` | No | Lot/batch number |
-| `lineNotes1` through `lineNotes3` | No | Line item notes |
+### Shipping Option Details (nested object)
 
-### Specifying Carrier and Shipping Method
+| Field | Type | Description |
+|-------|------|-------------|
+| `shippingOptionDetails.shippingOptionName` | string | Shipping method name (e.g. "Ground") |
+| `shippingOptionDetails.carrierName` | string | Carrier name (e.g. "UPS") |
+| `shippingOptionDetails.carrierSetupName` | string | Carrier setup name (e.g. "UPS Standard") |
+| `shippingOptionDetails.isSetUnmatchedShippingOptionAsRequested` | boolean | If `true`, unmatched methods are recorded as requested |
 
-To request a specific carrier and shipping method, include `shippingOptionDetails`:
+### Return Shipping Details (nested object)
 
-```json
-{
-  "shippingOptionDetails": {
-    "shippingOptionName": "Ground",
-    "carrierName": "UPS",
-    "carrierSetupName": "UPS Standard",
-    "isSetUnmatchedShippingOptionAsRequested": true
-  }
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `returnShippingOptionDetails.returnCarrierId` | integer | Return carrier ID |
+| `returnShippingOptionDetails.returnCarrierName` | string | Return carrier name |
+| `returnShippingOptionDetails.returnShippingOptionIdentifier` | string | Return shipping option GUID |
+| `returnShippingOptionDetails.returnShippingOptionName` | string | Return shipping option name |
+| `returnShippingOptionDetails.returnCarrierSetupIdentifier` | string | Return carrier setup GUID |
+| `returnShippingOptionDetails.returnCarrierSetupName` | string | Return carrier setup name |
+| `returnShippingOptionDetails.returnCost` | number | Return shipping cost |
+| `returnShippingOptionDetails.returnTrackingNumbers` | array | Array of return tracking numbers |
+| `returnShippingOptionDetails.returnAddressName` | string | Return address name |
 
-Setting `isSetUnmatchedShippingOptionAsRequested` to `true` means if the exact carrier/method isn't configured in our system, it will be recorded as the requested method and our team will handle routing.
+### Tax Details (array of objects)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `taxDetails[].taxId` | string | Tax identifier |
+| `taxDetails[].taxTypeName` | string | Tax type name |
+
+### Retailer Details (nested object)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retailerDetails.retailerIdentifier` | string | Retailer GUID |
+| `retailerDetails.pro` | string | PRO number |
+| `retailerDetails.bol` | string | Bill of lading |
+| `retailerDetails.po` | string | Retailer PO number |
+| `retailerDetails.dept` | string | Department |
+| `retailerDetails.markFor` | string | Mark for |
+| `retailerDetails.retailerCustomerAccountNumber` | string | Retailer customer account |
+
+### Complete Line Item Field Reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `sku` | string | **Yes** | Product SKU (must exist in the system) |
+| `packQuantity` | integer | **Yes** | Quantity to ship |
+| `packType` | string | No | Pack type (e.g. "Unit", "Case") — uses product default if omitted |
+| `unitPrice` | number | No | Unit price |
+| `unitTax` | number | No | Tax per unit |
+| `unitDiscount` | number | No | Discount per unit |
+| `taxIncluded` | boolean | No | Whether unitPrice includes tax |
+| `lotBatchNumber` | string | No | Lot/batch number |
+| `expiryDate` | string | No | Product expiry date |
+| `productionDate` | string | No | Product production date |
+| `warehouseLocationCode` | string | No | Specific warehouse location |
+| `licensePlate` | string | No | License plate number |
+| `damageReason` | string | No | Damage reason |
+| `customFieldDateTime1` | string | No | Custom date field 1 |
+| `customFieldDateTime2` | string | No | Custom date field 2 |
+| `customFieldDateTime3` | string | No | Custom date field 3 |
+| `customFieldToggle1` | boolean | No | Custom toggle 1 |
+| `customFieldToggle2` | boolean | No | Custom toggle 2 |
+| `customFieldDropDown1` | string | No | Custom dropdown 1 |
+| `customFieldDropDown2` | string | No | Custom dropdown 2 |
+| `customFieldTextBox1` | string | No | Custom text 1 |
+| `customFieldTextBox2` | string | No | Custom text 2 |
+| `customFieldTextBox3` | string | No | Custom text 3 |
+| `lineNotes1` | string | No | Line notes 1 |
+| `lineNotes2` | string | No | Line notes 2 |
+| `lineNotes3` | string | No | Line notes 3 |
 
 **Note:** Available carriers and shipping methods depend on your account configuration. Contact your KSP account representative for a list of carriers and methods available for your account.
 
@@ -397,35 +505,75 @@ Submit an inbound purchase order (ASN) to notify the warehouse of incoming inven
 | Field | Description |
 |-------|-------------|
 | `code` | Your unique PO number |
-| `purchaseOrderLineList` | Array of line items with `sku` and `packQuantity` |
+| `purchaseOrderLineList` | Array of line items (at minimum `sku` and `packQuantity`) |
 
-### Optional Fields
+### Complete Field Reference — Purchase Order
 
-| Field | Description |
-|-------|-------------|
-| `vendor` | Vendor/supplier name |
-| `purchaseOrderDate` | PO date (default: today) |
-| `plannedReceivingDate` | Expected receiving date |
-| `plannedArrivalDate` | Expected arrival date |
-| `referenceNumber` | Vendor reference number |
-| `vendorBillingAddress` | Vendor billing address |
-| `vendorShipmentAddress` | Vendor ship-from address |
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | string | **Required.** Your unique PO number |
+| `vendor` | string | Vendor/supplier name |
+| `purchaseOrderDate` | string | PO date, ISO format (default: today) |
+| `actualReceivingDate` | string | Actual receiving date |
+| `plannedReceivingDate` | string | Expected receiving date |
+| `plannedArrivalDate` | string | Expected arrival date |
+| `actualArrivalDate` | string | Actual arrival date |
+| `referenceNumber` | string | Vendor reference number |
+| `currencyId` | string | Currency ID |
+| `note` | string | PO notes |
+| `customFieldDateTime1` | string | Custom date field 1 |
+| `customFieldDateTime2` | string | Custom date field 2 |
+| `customFieldDateTime3` | string | Custom date field 3 |
+| `customFieldToggle1` | boolean | Custom toggle 1 |
+| `customFieldToggle2` | boolean | Custom toggle 2 |
+| `customFieldDropDown1` | string | Custom dropdown 1 |
+| `customFieldDropDown2` | string | Custom dropdown 2 |
+| `customFieldTextBox1` | string | Custom text 1 |
+| `customFieldTextBox2` | string | Custom text 2 |
+| `customFieldTextBox3` | string | Custom text 3 |
 
-### Line Item Fields
+### Vendor Address Fields (vendorBillingAddress / vendorShipmentAddress)
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `sku` | Yes | Product SKU |
-| `packQuantity` | Yes | Quantity expected |
-| `packType` | No | Pack type |
-| `unitPrice` | No | Unit cost |
-| `lotBatchNumber` | No | Lot/batch number |
+Both vendor address objects share the same structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `country` | string | Country code |
+| `state` | string | State |
+| `addressName` | string | Address name/label |
+| `companyName` | string | Company name |
+| `firstName` | string | First name |
+| `lastName` | string | Last name |
+| `email` | string | Email |
+| `addressLine1` | string | Street address |
+| `addressLine2` | string | Suite, unit, etc. |
+| `city` | string | City |
+| `postalCode` | string | ZIP/postal code |
+| `phoneNumber` | string | Phone number |
+| `fax` | string | Fax number |
+
+### Complete PO Line Item Field Reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `sku` | string | **Yes** | Product SKU |
+| `packQuantity` | integer | **Yes** | Quantity expected |
+| `packType` | string | No | Pack type (e.g. "Unit", "Case") |
+| `unitPrice` | number | No | Unit cost |
+| `taxRate` | number | No | Tax rate |
+| `note` | string | No | Line item note |
+| `lotBatchNumber` | string | No | Lot/batch number |
+| `expiryDate` | string | No | Product expiry date |
+| `productionDate` | string | No | Product production date |
+| `licensePlateType` | string | No | License plate type |
+| `licensePlateNumber` | string | No | License plate number |
+| `warehouseLocation` | string | No | Specific warehouse location |
 
 ### Fields You Do NOT Need to Send
 
 | Field | Why |
 |-------|-----|
-| `clientIdentifier` | Assigned by the gateway |
+| `clientIdentifier` | Assigned by the gateway based on your API key |
 | `warehouseIdentifier` | Assigned by the gateway |
 | `purchaseOrderTypeName` | Handled by the gateway |
 
