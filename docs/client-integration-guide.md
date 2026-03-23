@@ -42,10 +42,13 @@ If you exceed the limit, you'll receive a `429 Too Many Requests` response. Wait
 |--------|----------|-------------|
 | POST | `/v1/orders` | Submit a single order |
 | POST | `/v1/orders/bulk` | Submit up to 50 orders at once |
-| GET | `/v1/orders/{orderId}` | Get order status |
+| GET | `/v1/orders` | List orders (paginated, filterable) |
+| GET | `/v1/orders/{orderId}` | Get full order details |
 | GET | `/v1/orders/{orderId}/tracking` | Get tracking information |
-| POST | `/v1/inventory/query` | Query inventory by SKU(s) |
+| GET | `/v1/inventory` | List all inventory (paginated, filterable) |
+| POST | `/v1/inventory/query` | Query inventory by specific SKU(s) |
 | POST | `/v1/purchase-orders` | Submit a purchase order |
+| GET | `/v1/purchase-orders` | List purchase orders (paginated, filterable) |
 | GET | `/v1/purchase-orders/{id}` | Get purchase order details |
 | GET | `/v1/purchase-orders/{code}/receipts` | Get PO receiving history |
 | GET | `/v1/health` | Health check (no auth required) |
@@ -366,7 +369,15 @@ Submit up to 50 orders in a single request. Same payload structure as single ord
 }
 ```
 
-Bulk orders are processed asynchronously. The `requestId` confirms acceptance. Individual order results will be available via the order status endpoint.
+Bulk orders are processed asynchronously. The `requestId` confirms acceptance.
+
+### How to Check Bulk Results
+
+You do **not** need to set up webhooks — the gateway handles that. To check if your bulk orders were processed:
+
+1. **List your orders** using `GET /v1/orders` and filter by date or code to find the orders you submitted
+2. **Check individual order status** using `GET /v1/orders/{orderId}` for any specific order
+3. Any orders that failed validation will appear with error details in the list response
 
 ### Limits
 
@@ -375,28 +386,60 @@ Bulk orders are processed asynchronously. The `requestId` confirms acceptance. I
 
 ---
 
-## 3. Get Order Status
+## 3. List Orders
+
+```
+GET /v1/orders?page=0&size=50
+```
+
+List your orders with pagination and filtering. Results are automatically scoped to your account — you will only see your own orders.
+
+### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 0 | Page index (starts at 0) |
+| `size` | 50 | Results per page |
+
+### LQL Filtering
+
+You can filter results using Logiwa Query Language (LQL) parameters:
+
+```
+GET /v1/orders?page=0&size=50&Code.eq=ORD-001
+GET /v1/orders?page=0&size=50&Status.eq=5
+GET /v1/orders?page=0&size=50&CreatedDateTime.bt=2026-01-01,2026-01-31
+GET /v1/orders?page=0&size=50&ActualShipmentDate.bt=2026-03-01,2026-03-31
+```
+
+LQL operators: `eq` (equals), `gt` (greater than), `gte` (greater or equal), `lt` (less than), `lte` (less or equal), `bt` (between, inclusive).
+
+### Example Response
+
+Returns the full Logiwa order list response including order details, statuses, tracking numbers, etc.
+
+---
+
+## 4. Get Order Details
 
 ```
 GET /v1/orders/{orderId}
 ```
 
-Retrieve the current status of an order using the `orderId` returned when the order was submitted.
+Retrieve full order details. You can pass either the gateway `orderId` returned when the order was submitted, or the `logiwaOrderId`. Returns the complete Logiwa order record including status, tracking, shipping details, and all fields.
 
 ### Example Response
 
-```json
-{
-  "orderId": "e30faaa3-c510-4df7-9506-996a40be2bd9",
-  "code": "77671",
-  "logiwaOrderId": "d53e3316-3788-4f8b-93c8-97901f579da2",
-  "status": "sent",
-  "createdAt": "2026-03-20 18:06:05",
-  "updatedAt": "2026-03-20 18:06:05"
-}
-```
+Returns the full Logiwa order record with all fields including:
+- Order code, status, dates
+- Customer and address details
+- Line items with SKUs and quantities
+- Tracking numbers, carrier info
+- All custom fields
 
-### Order Statuses
+If the Logiwa system is temporarily unavailable, falls back to cached gateway status.
+
+### Order Statuses (Gateway)
 
 | Status | Meaning |
 |--------|---------|
@@ -408,7 +451,7 @@ Retrieve the current status of an order using the `orderId` returned when the or
 
 ---
 
-## 4. Get Tracking Information
+## 5. Get Tracking Information
 
 ```
 GET /v1/orders/{orderId}/tracking
@@ -439,7 +482,44 @@ Tracking information is updated periodically. If the order hasn't shipped yet, `
 
 ---
 
-## 5. Query Inventory
+## 6. List All Inventory
+
+```
+GET /v1/inventory?page=0&size=200
+```
+
+Page through all inventory for your account. Results are automatically scoped to your account — you will only see your own inventory.
+
+This is useful for syncing your full inventory with your own system. You can page through all SKUs at the warehouse, not just specific ones.
+
+### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 0 | Page index (starts at 0) |
+| `size` | 200 | Results per page (max 200) |
+
+### LQL Filtering
+
+```
+GET /v1/inventory?page=0&size=200&Sku.eq=WIDGET-100
+GET /v1/inventory?page=0&size=200&WarehouseIdentifier.eq={uuid}
+```
+
+### Example Response
+
+Returns the full Logiwa inventory list including:
+- `productSku`, `productName`
+- `availableQuantity`, `totalQuantity`, `allocatedQuantity`, `freeQuantity`
+- `warehouseCode`, `warehouseLocationCode`
+- `lotBatchNumber`, `expiryDate`
+- `inventoryStatusName`
+
+Page through by incrementing `page` until you get fewer results than `size`.
+
+---
+
+## 7. Query Inventory by SKU
 
 ```
 POST /v1/inventory/query
@@ -471,7 +551,7 @@ A `null` quantity means the SKU was not found in inventory. Query up to 100 SKUs
 
 ---
 
-## 6. Submit a Purchase Order
+## 8. Submit a Purchase Order
 
 ```
 POST /v1/purchase-orders
@@ -591,7 +671,35 @@ Both vendor address objects share the same structure:
 
 ---
 
-## 7. Get Purchase Order Details
+## 9. List Purchase Orders
+
+```
+GET /v1/purchase-orders?page=0&size=50
+```
+
+Page through your purchase orders. Results are automatically scoped to your account.
+
+### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 0 | Page index (starts at 0) |
+| `size` | 50 | Results per page |
+
+### LQL Filtering
+
+```
+GET /v1/purchase-orders?page=0&size=50&Code.eq=PO-001
+GET /v1/purchase-orders?page=0&size=50&CreatedDate.bt=2026-01-01,2026-01-31
+```
+
+### Example Response
+
+Returns the full Logiwa purchase order list including PO code, vendor, status, line items, dates, and receiving progress.
+
+---
+
+## 10. Get Purchase Order Details
 
 ```
 GET /v1/purchase-orders/{identifier}
@@ -601,7 +709,7 @@ Retrieve details for a purchase order using the `logiwaIdentifier` from the subm
 
 ---
 
-## 8. Get Purchase Order Receipts
+## 11. Get Purchase Order Receipts
 
 ```
 GET /v1/purchase-orders/{code}/receipts?page=0&size=50

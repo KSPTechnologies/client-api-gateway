@@ -1,7 +1,7 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, LogiwaCredentials } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, getShipmentOrder, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
 
 async function logiwaFetchDirect(
@@ -46,6 +46,47 @@ export async function handleOrders(
   path: string
 ): Promise<Response> {
   const method = request.method;
+
+  // GET /v1/orders — list orders (passthrough to Logiwa with tenant scoping)
+  if (method === 'GET' && path === '/v1/orders') {
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
+
+    if (!creds) {
+      throw badRequest('Logiwa credentials not configured for this environment');
+    }
+
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '0');
+    const size = parseInt(url.searchParams.get('size') || '50');
+
+    // Build filters — always inject client identifier for tenant scoping
+    const filters: Record<string, string> = {};
+    if (creds.clientIdentifier) {
+      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+    }
+    // Pass through any LQL filters from the client's query string
+    for (const [key, value] of url.searchParams) {
+      if (key !== 'page' && key !== 'size') {
+        filters[key] = value;
+      }
+    }
+
+    try {
+      const result = await listShipmentOrders(creds, page, size, filters);
+      return Response.json(result);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Logiwa list orders failed:', errMsg);
+
+      await env.DB.prepare(
+        `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+         VALUES (?, '/v1/orders', 'GET', ?, 502, 0, 0, datetime('now'))`
+      ).bind(tenant.tenantId, errMsg).run();
+
+      return Response.json({ error: errMsg }, { status: 502 });
+    }
+  }
 
   // POST /v1/orders — create order (passthrough to Logiwa native schema)
   if (method === 'POST' && path === '/v1/orders') {
@@ -234,11 +275,12 @@ export async function handleOrders(
     }
   }
 
-  // GET /v1/orders/:id — get order status
+  // GET /v1/orders/:id — get full order details from Logiwa (D1 fallback for ID mapping)
   const orderMatch = path.match(/^\/v1\/orders\/([^/]+)$/);
   if (method === 'GET' && orderMatch) {
     const orderId = orderMatch[1];
 
+    // Try to look up the Logiwa order ID from D1 (in case they pass our internal ID)
     const row = await env.DB.prepare(
       `SELECT id, external_order_id, logiwa_order_id, status, created_at, updated_at
        FROM orders WHERE id = ? AND tenant_id = ?`
@@ -246,18 +288,53 @@ export async function handleOrders(
       .bind(orderId, tenant.tenantId)
       .first();
 
-    if (!row) {
-      throw notFound(`Order ${orderId} not found`);
+    const logiwaIdentifier = (row?.logiwa_order_id as string) || orderId;
+
+    // Fetch full details from Logiwa
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
+
+    if (creds) {
+      try {
+        const logiwaOrder = await getShipmentOrder(creds, logiwaIdentifier);
+        return Response.json(logiwaOrder);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('Logiwa get order failed:', errMsg);
+
+        await env.DB.prepare(
+          `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+           VALUES (?, '/v1/orders/:id', 'GET', ?, 502, 0, 0, datetime('now'))`
+        ).bind(tenant.tenantId, errMsg).run();
+
+        // Fall back to D1 status if Logiwa call fails and we have a D1 record
+        if (row) {
+          return Response.json({
+            orderId: row.id,
+            code: row.external_order_id,
+            logiwaOrderId: row.logiwa_order_id,
+            status: row.status,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            _note: 'Logiwa details unavailable, showing cached status',
+          });
+        }
+      }
     }
 
-    return Response.json({
-      orderId: row.id,
-      code: row.external_order_id,
-      logiwaOrderId: row.logiwa_order_id,
-      status: row.status,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    });
+    // If no creds or Logiwa failed with no D1 record
+    if (row) {
+      return Response.json({
+        orderId: row.id,
+        code: row.external_order_id,
+        logiwaOrderId: row.logiwa_order_id,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    throw notFound(`Order ${orderId} not found`);
   }
 
   throw methodNotAllowed();

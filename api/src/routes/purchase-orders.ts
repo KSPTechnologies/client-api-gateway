@@ -48,6 +48,45 @@ export async function handlePurchaseOrders(
   const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
   const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
+  // GET /v1/purchase-orders — list purchase orders (passthrough to Logiwa with tenant scoping)
+  if (method === 'GET' && path === '/v1/purchase-orders') {
+    if (!creds) {
+      throw badRequest('Logiwa credentials not configured for this environment');
+    }
+
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '0');
+    const size = parseInt(url.searchParams.get('size') || '50');
+
+    // Build filters — always inject client identifier for tenant scoping
+    const filters: Record<string, string> = {};
+    if (creds.clientIdentifier) {
+      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+    }
+    // Pass through any LQL filters from the client's query string
+    for (const [key, value] of url.searchParams) {
+      if (key !== 'page' && key !== 'size') {
+        filters[key] = value;
+      }
+    }
+
+    try {
+      const filterParams = new URLSearchParams(filters);
+      const result = await logiwaFetchDirect(creds, 'GET', `/v3.1/PurchaseOrder/list/i/${page}/s/${size}?${filterParams.toString()}`);
+      return Response.json(result);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Logiwa list purchase orders failed:', errMsg);
+
+      await env.DB.prepare(
+        `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+         VALUES (?, '/v1/purchase-orders', 'GET', ?, 502, 0, 0, datetime('now'))`
+      ).bind(tenant.tenantId, errMsg).run();
+
+      return Response.json({ error: errMsg }, { status: 502 });
+    }
+  }
+
   // POST /v1/purchase-orders — passthrough to Logiwa native schema
   if (method === 'POST' && path === '/v1/purchase-orders') {
     let body: Record<string, unknown>;

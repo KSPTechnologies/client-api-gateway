@@ -2,7 +2,42 @@ import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { inventoryQuerySchema } from '../lib/validate';
 import { badRequest, methodNotAllowed } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, queryInventory } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, queryInventory, LogiwaCredentials } from '../lib/logiwa';
+import { ApiError } from '../lib/errors';
+
+async function logiwaFetchDirect(
+  creds: LogiwaCredentials,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<any> {
+  const tokenRes = await fetch(`${creds.apiUrl}/v3.1/Authorize/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: creds.username, password: creds.password }),
+  });
+  if (!tokenRes.ok) {
+    const errBody = await tokenRes.text();
+    throw new ApiError(502, `Logiwa auth failed (${tokenRes.status}): ${errBody}`, 'LOGIWA_AUTH_FAILED');
+  }
+  const tokenData = await tokenRes.json() as { token: string };
+
+  const res = await fetch(`${creds.apiUrl}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenData.token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new ApiError(502, `Logiwa API error (${res.status}): ${errBody}`, 'LOGIWA_API_ERROR');
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
 
 export async function handleInventory(
   request: Request,
@@ -10,6 +45,48 @@ export async function handleInventory(
   tenant: TenantContext,
   path: string
 ): Promise<Response> {
+  // GET /v1/inventory — list all inventory (passthrough to Logiwa with tenant scoping)
+  if (request.method === 'GET' && path === '/v1/inventory') {
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
+
+    if (!creds) {
+      throw badRequest('Logiwa credentials not configured for this environment');
+    }
+
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '0');
+    const size = parseInt(url.searchParams.get('size') || '200');
+
+    // Build filters — always inject client identifier for tenant scoping
+    const filters: Record<string, string> = {};
+    if (creds.clientIdentifier) {
+      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+    }
+    // Pass through any LQL filters from the client's query string
+    for (const [key, value] of url.searchParams) {
+      if (key !== 'page' && key !== 'size') {
+        filters[key] = value;
+      }
+    }
+
+    try {
+      const filterParams = new URLSearchParams(filters);
+      const result = await logiwaFetchDirect(creds, 'GET', `/v3.1/Inventory/list/i/${page}/s/${size}?${filterParams.toString()}`);
+      return Response.json(result);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Logiwa list inventory failed:', errMsg);
+
+      await env.DB.prepare(
+        `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+         VALUES (?, '/v1/inventory', 'GET', ?, 502, 0, 0, datetime('now'))`
+      ).bind(tenant.tenantId, errMsg).run();
+
+      return Response.json({ error: errMsg }, { status: 502 });
+    }
+  }
+
   if (request.method === 'POST' && path === '/v1/inventory/query') {
     let body: unknown;
     try {
