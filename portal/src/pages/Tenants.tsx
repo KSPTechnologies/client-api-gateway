@@ -37,6 +37,7 @@ const ENDPOINT_OPTIONS = [
   { type: 'list_inventory', label: 'List All Inventory', method: 'GET', path: '/v1/inventory' },
   { type: 'create_po', label: 'Submit Purchase Orders', method: 'POST', path: '/v1/purchase-orders' },
   { type: 'list_po', label: 'List Purchase Orders', method: 'GET', path: '/v1/purchase-orders' },
+  { type: 'get_po', label: 'Get PO Details', method: 'GET', path: '/v1/purchase-orders/:id' },
   { type: 'po_receipts', label: 'Get PO Receipts', method: 'GET', path: '/v1/purchase-orders/:id/receipts' },
 ];
 
