@@ -115,6 +115,7 @@ export async function handlePurchaseOrders(
       ...body,
       clientIdentifier: creds.clientIdentifier,
       warehouseIdentifier: creds.warehouseIdentifier,
+      purchaseOrderTypeName: body.purchaseOrderTypeName || 'Purchase Order',
       purchaseOrderDate: body.purchaseOrderDate || new Date().toISOString().split('T')[0],
     };
 
