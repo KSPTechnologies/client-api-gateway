@@ -4,6 +4,7 @@ import { handleOrders } from './orders';
 import { handleTracking } from './tracking';
 import { handleInventory } from './inventory';
 import { handlePurchaseOrders } from './purchase-orders';
+import { handleProducts } from './products';
 import { handleWebhooks } from './webhooks';
 import { logRequest } from '../lib/logger';
 import { checkRateLimit } from '../lib/rate-limit';
@@ -61,6 +62,8 @@ export async function handleRequest(
       response = await handleInventory(request, env, tenant, path);
     } else if (path.startsWith('/v1/purchase-orders')) {
       response = await handlePurchaseOrders(request, env, tenant, path);
+    } else if (path.startsWith('/v1/products')) {
+      response = await handleProducts(request, env, tenant, path);
     } else {
       response = notFound().toResponse();
     }

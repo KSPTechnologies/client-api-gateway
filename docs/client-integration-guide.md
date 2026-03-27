@@ -47,6 +47,8 @@ If you exceed the limit, you'll receive a `429 Too Many Requests` response. Wait
 | GET | `/v1/orders/{orderId}/tracking` | Get tracking information |
 | GET | `/v1/inventory` | List all inventory (paginated, filterable) |
 | POST | `/v1/inventory/query` | Query inventory by specific SKU(s) |
+| GET | `/v1/products` | List products/SKUs (paginated, filterable) |
+| POST | `/v1/products` | Create a new product/SKU |
 | POST | `/v1/purchase-orders` | Submit a purchase order |
 | GET | `/v1/purchase-orders` | List purchase orders (paginated, filterable) |
 | GET | `/v1/purchase-orders/{id}` | Get purchase order details |
@@ -551,7 +553,258 @@ A `null` quantity means the SKU was not found in inventory. Query up to 100 SKUs
 
 ---
 
-## 8. Submit a Purchase Order
+## 8. List Products
+
+```
+GET /v1/products?page=0&size=100
+```
+
+List all products/SKUs in your account. Results are automatically scoped to your account. This is useful for checking which products exist before submitting purchase orders or shipment orders.
+
+### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 0 | Page index (starts at 0) |
+| `size` | 100 | Results per page |
+
+### LQL Filtering
+
+```
+GET /v1/products?page=0&size=100&Sku.eq=WIDGET-100
+GET /v1/products?page=0&size=100&ProductTypeName.eq=T-Shirt
+GET /v1/products?page=0&size=100&ProductGroupName.eq=Apparel
+GET /v1/products?page=0&size=100&CreatedDateTime.bt=2026-01-01,2026-03-31
+```
+
+### Example Response
+
+Returns the full product list including:
+- `identifier`, `sku`, `name`, `description`
+- `clientDisplayName`
+- `salesPrice`, `purchasePrice`, `taxRate`
+- `uomPackTypeName` (e.g. "Unit", "Case")
+- `productGroupName`, `productTypeName`
+- `isActive`, `isFragile`, `isOversized`, `isHazardous`
+- `isTrackLotBatchNumber`, `isTrackExpiryDate`
+- Custom fields
+
+Page through by incrementing `page` until you get fewer results than `size`.
+
+---
+
+## 9. Create a Product (SKU)
+
+```
+POST /v1/products
+```
+
+Create a new product/SKU. This should be used when you need to add a product to the system before submitting purchase orders or shipment orders referencing that SKU.
+
+**Note:** Product modification and deletion are not available through the API. Contact KSP for changes to existing products.
+
+### Example Payload (Minimal)
+
+```json
+{
+  "sku": "PRD-WIDGET-100",
+  "name": "Widget 100",
+  "description": "Standard widget, blue",
+  "uomPackTypeName": "Unit",
+  "isActive": true
+}
+```
+
+### Example Payload (Full)
+
+```json
+{
+  "sku": "PRD-RED-TSHIRT-M-2025",
+  "fnsku": "FN-RED-TSHIRT-M-2025",
+  "name": "Red T-Shirt M",
+  "description": "100% cotton red t-shirt, Size Medium",
+  "upc": ["0123456789012"],
+  "salesPrice": 19.99,
+  "purchasePrice": 10.50,
+  "taxRate": 18,
+  "uomPackTypeName": "Piece",
+  "productGroupName": "Apparel",
+  "productTypeName": "T-Shirt",
+  "isActive": true,
+  "isDigitalProduct": false,
+  "isPackagingMaterial": false,
+  "currencyId": 1,
+  "minimumSafetyStock": 10,
+  "imageList": [
+    { "imageLink": "https://example.com/images/product-front.jpg" },
+    { "imageLink": "https://example.com/images/product-back.jpg" }
+  ],
+  "packingSettings": {
+    "uomPackTypeWeightUnitId": 1,
+    "uomPackTypeWeight": 0.3,
+    "uomPackTypeDimensionUnitId": 1,
+    "uomPackTypeLength": 30,
+    "uomPackTypeWidth": 25,
+    "uomPackTypeHeight": 2,
+    "isFragile": false,
+    "isOversized": false,
+    "isHazardous": false,
+    "isPoster": false,
+    "isLiquid": false,
+    "isFoldable": true,
+    "isStackable": true,
+    "isUseItemsOwnBoxForShipping": false,
+    "packingInstructions": "Place in poly bag before packing"
+  },
+  "customsDeclaration": {
+    "declaredValue": 19.99,
+    "hsTariffCode": "6109.10.0012",
+    "originCountryCode": "US",
+    "isIgnoreCustomsDeclaration": false,
+    "customsDescription": "Cotton T-Shirt"
+  },
+  "lotBatchNumberSettings": {
+    "isTrackLotBatchNumber": false,
+    "isAutoCreateLotBatchNumber": false
+  },
+  "expiryDateSettings": {
+    "isTrackExpiryDate": false
+  },
+  "serialNumberSettings": {
+    "isTrackSerialNumber": false
+  }
+}
+```
+
+### Required Fields
+
+| Field | Description |
+|-------|-------------|
+| `sku` | Unique product SKU |
+
+### Complete Field Reference — Product
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sku` | string | **Required.** Unique product SKU |
+| `name` | string | Product name |
+| `description` | string | Product description |
+| `fnsku` | string | FNSKU (Amazon) |
+| `upc` | array | Array of UPC barcodes |
+| `salesPrice` | number | Sales price |
+| `purchasePrice` | number | Purchase/cost price |
+| `taxRate` | number | Tax rate percentage |
+| `uomPackTypeName` | string | Default pack type (e.g. "Unit", "Piece", "Case") |
+| `productGroupName` | string | Product group |
+| `productTypeName` | string | Product type |
+| `isActive` | boolean | Whether product is active |
+| `isDigitalProduct` | boolean | Digital product flag |
+| `isPackagingMaterial` | boolean | Packaging material flag |
+| `isNonReturnable` | boolean | Non-returnable flag |
+| `isInsert` | boolean | Insert item flag |
+| `currencyId` | integer | Currency ID |
+| `minimumSafetyStock` | integer | Minimum safety stock level |
+| `maxReplenishmentLevel` | integer | Max replenishment level |
+| `minReplenishmentLevel` | integer | Min replenishment level |
+| `uomPackTypeVolumeUnitId` | integer | Volume unit ID |
+| `uomPackTypeVolume` | number | Volume |
+| `carrierPackageIdentifier` | string | Carrier package GUID |
+| `returnInstructions` | string | Return instructions |
+| `kitTypeId` | integer | Kit type ID (for kit products) |
+| `imageList` | array | Array of `{ imageLink: "url" }` objects |
+
+### Packing Settings (nested object)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `packingSettings.uomPackTypeWeightUnitId` | integer | Weight unit (1=Pound, 2=Kilogram) |
+| `packingSettings.uomPackTypeWeight` | number | Weight |
+| `packingSettings.uomPackTypeDimensionUnitId` | integer | Dimension unit (1=Inch, 2=Centimeter) |
+| `packingSettings.uomPackTypeLength` | number | Length |
+| `packingSettings.uomPackTypeWidth` | number | Width |
+| `packingSettings.uomPackTypeHeight` | number | Height |
+| `packingSettings.isFragile` | boolean | Fragile flag |
+| `packingSettings.isOversized` | boolean | Oversized flag |
+| `packingSettings.isHazardous` | boolean | Hazardous flag |
+| `packingSettings.isPoster` | boolean | Poster/tube flag |
+| `packingSettings.isLiquid` | boolean | Liquid flag |
+| `packingSettings.isFoldable` | boolean | Foldable flag |
+| `packingSettings.isStackable` | boolean | Stackable flag |
+| `packingSettings.isUseItemsOwnBoxForShipping` | boolean | Ship in own box |
+| `packingSettings.packingInstructions` | string | Packing instructions |
+
+### Customs Declaration (nested object)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `customsDeclaration.declaredValue` | number | Declared value |
+| `customsDeclaration.hsTariffCode` | string | HS tariff code |
+| `customsDeclaration.originCountryCode` | string | Country of origin |
+| `customsDeclaration.isIgnoreCustomsDeclaration` | boolean | Skip customs |
+| `customsDeclaration.customsDescription` | string | Customs description |
+
+### Lot/Batch Settings (nested object)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `lotBatchNumberSettings.isTrackLotBatchNumber` | boolean | Track lot/batch numbers |
+| `lotBatchNumberSettings.isAutoCreateLotBatchNumber` | boolean | Auto-create lot numbers |
+| `lotBatchNumberSettings.lotBatchNumberRegex` | string | Validation regex |
+
+### Expiry Date Settings (nested object)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `expiryDateSettings.isTrackExpiryDate` | boolean | Track expiry dates |
+| `expiryDateSettings.expiryDateFormat` | string | Date format |
+| `expiryDateSettings.isCalculateExpiryFromProduction` | boolean | Calculate from production date |
+| `expiryDateSettings.shelfLife` | integer | Shelf life in days |
+
+### Serial Number Settings (nested object)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `serialNumberSettings.isTrackSerialNumber` | boolean | Track serial numbers |
+| `serialNumberSettings.isScanSerialNumberDuringPacking` | boolean | Scan during packing |
+| `serialNumberSettings.isScanSerialNumberDuringReceiving` | boolean | Scan during receiving |
+| `serialNumberSettings.serialNumberRegex` | string | Validation regex |
+
+### Custom Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `customFieldDateTime1` through `3` | string | Custom date fields |
+| `customFieldToggle1` through `2` | boolean | Custom toggle fields |
+| `customFieldDropDown1` through `2` | string | Custom dropdown fields |
+| `customFieldTextBox1` through `3` | string | Custom text fields |
+
+### Fields You Do NOT Need to Send
+
+| Field | Why |
+|-------|-----|
+| `clientIdentifier` | Assigned by the gateway based on your API key |
+
+### Example Response
+
+```json
+{
+  "productId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "logiwaIdentifier": "f18d8f61-fb5d-45ec-b2ef-21e57b9ed0c1",
+  "sku": "PRD-WIDGET-100",
+  "status": "created",
+  "message": "Product created in Logiwa"
+}
+```
+
+### Important Notes
+
+- **SKUs must be unique.** Creating a product with an existing SKU will return an error.
+- **Product modification and deletion are not available** through the API. Contact KSP for changes.
+- **Dimensions and weight** go in the `packingSettings` object — `uomPackTypeWeight`, `uomPackTypeLength`, `uomPackTypeWidth`, `uomPackTypeHeight`.
+
+---
+
+## 10. Submit a Purchase Order
 
 ```
 POST /v1/purchase-orders
@@ -671,7 +924,7 @@ Both vendor address objects share the same structure:
 
 ---
 
-## 9. List Purchase Orders
+## 11. List Purchase Orders
 
 ```
 GET /v1/purchase-orders?page=0&size=50
@@ -699,7 +952,7 @@ Returns the full Logiwa purchase order list including PO code, vendor, status, l
 
 ---
 
-## 10. Get Purchase Order Details
+## 12. Get Purchase Order Details
 
 ```
 GET /v1/purchase-orders/{identifier}
@@ -709,7 +962,7 @@ Retrieve details for a purchase order using the `logiwaIdentifier` from the subm
 
 ---
 
-## 11. Get Purchase Order Receipts
+## 13. Get Purchase Order Receipts
 
 ```
 GET /v1/purchase-orders/{code}/receipts?page=0&size=50
@@ -776,8 +1029,7 @@ All errors return a consistent format:
 
 The following operations are managed by KSP and are not available through the API:
 
-- **Product creation** — Contact your KSP account representative to set up new SKUs
-- **Product updates** — Managed by KSP
+- **Product updates/deletion** — Managed by KSP. You can create products but cannot modify or delete them
 - **Order cancellation** — Contact KSP to cancel orders
 - **Order deletion** — Contact KSP
 - **Webhook management** — Managed by KSP
