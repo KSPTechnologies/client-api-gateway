@@ -43,11 +43,13 @@ export async function handleRequest(
   }
 
   // Rate limit
-  const { allowed, remaining } = await checkRateLimit(env, tenant.tenantId, tenant.rateLimit);
+  const { allowed, remaining, resetSeconds } = await checkRateLimit(env, tenant.tenantId, tenant.rateLimit);
   if (!allowed) {
     return withCors(rateLimited().toResponse(), {
       'X-RateLimit-Limit': tenant.rateLimit.toString(),
       'X-RateLimit-Remaining': '0',
+      'X-RateLimit-Reset': resetSeconds.toString(),
+      'Retry-After': resetSeconds.toString(),
     });
   }
 
@@ -71,19 +73,19 @@ export async function handleRequest(
     if (err instanceof ApiError) {
       response = err.toResponse();
       ctx.waitUntil(logRequest(env, tenant.tenantId, request, response, err.message));
-      return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining));
+      return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining, resetSeconds));
     }
 
     const message = err instanceof Error ? err.message : 'Internal server error';
     response = internal(message).toResponse();
     ctx.waitUntil(logRequest(env, tenant.tenantId, request, response, message));
-    return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining));
+    return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining, resetSeconds));
   }
 
   // Log successful request
   ctx.waitUntil(logRequest(env, tenant.tenantId, request, response));
 
-  return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining));
+  return withCors(response, rateLimitHeaders(tenant.rateLimit, remaining, resetSeconds));
 }
 
 function corsHeaders(): Record<string, string> {
@@ -95,10 +97,11 @@ function corsHeaders(): Record<string, string> {
   };
 }
 
-function rateLimitHeaders(limit: number, remaining: number): Record<string, string> {
+function rateLimitHeaders(limit: number, remaining: number, resetSeconds: number): Record<string, string> {
   return {
     'X-RateLimit-Limit': limit.toString(),
     'X-RateLimit-Remaining': remaining.toString(),
+    'X-RateLimit-Reset': resetSeconds.toString(),
   };
 }
 

@@ -11,20 +11,20 @@ export async function checkRateLimit(
   env: Env,
   tenantId: string,
   limit: number
-): Promise<{ allowed: boolean; remaining: number }> {
+): Promise<{ allowed: boolean; remaining: number; resetSeconds: number }> {
   const key = `ratelimit:${tenantId}`;
   const current = await env.KV.get(key, 'text');
   const count = current ? parseInt(current, 10) : 0;
 
   if (count >= limit) {
-    return { allowed: false, remaining: 0 };
+    return { allowed: false, remaining: 0, resetSeconds: WINDOW_SECONDS };
   }
 
-  // Increment counter — set TTL on first request in window
+  // Increment counter — always set TTL so the key expires
   const newCount = count + 1;
   await env.KV.put(key, newCount.toString(), {
-    expirationTtl: current ? undefined : WINDOW_SECONDS,
+    expirationTtl: WINDOW_SECONDS,
   });
 
-  return { allowed: true, remaining: limit - newCount };
+  return { allowed: true, remaining: limit - newCount, resetSeconds: WINDOW_SECONDS };
 }
