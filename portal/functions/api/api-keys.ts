@@ -64,9 +64,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return Response.json({ error: 'Missing required field: tenant_id' }, { status: 400 });
   }
 
-  const tenant = await env.DB.prepare('SELECT id, name FROM tenants WHERE id = ?').bind(body.tenant_id).first();
+  const tenant = await env.DB.prepare(
+    'SELECT id, name, logiwa_sandbox_client_id, logiwa_prod_client_id FROM tenants WHERE id = ?'
+  ).bind(body.tenant_id).first();
   if (!tenant) {
     return Response.json({ error: 'Tenant not found' }, { status: 404 });
+  }
+
+  // Block key generation if the tenant isn't set up for the chosen environment
+  const chosenEnv = body.environment || 'sandbox';
+  const clientId = chosenEnv === 'production' ? tenant.logiwa_prod_client_id : tenant.logiwa_sandbox_client_id;
+  if (!clientId) {
+    return Response.json({
+      error: `${tenant.name} does not have a Logiwa ${chosenEnv} client ID configured. Set it up in the client settings before generating a ${chosenEnv} key.`,
+    }, { status: 400 });
   }
 
   const rawKey = generateApiKey();

@@ -25,6 +25,7 @@ export default function ApiKeys() {
   const [showModal, setShowModal] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [form, setForm] = useState({ tenant_id: '', label: '', rate_limit: '60', environment: 'sandbox' as 'sandbox' | 'production' });
+  const [error, setError] = useState<string | null>(null);
 
   const loadKeys = () => {
     fetch('/api/api-keys')
@@ -40,6 +41,7 @@ export default function ApiKeys() {
   }, []);
 
   const handleGenerate = async () => {
+    setError(null);
     const res = await fetch('/api/api-keys', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -55,6 +57,9 @@ export default function ApiKeys() {
       setNewKey(data.key);
       setForm({ tenant_id: '', label: '', rate_limit: '60', environment: 'sandbox' });
       loadKeys();
+    } else {
+      const data = await res.json() as { error?: string };
+      setError(data.error || 'Failed to generate key');
     }
   };
 
@@ -74,7 +79,7 @@ export default function ApiKeys() {
     <div>
       <div className="toolbar">
         <div className="page-header"><h1>API Keys</h1></div>
-        <button className="btn btn-primary" onClick={() => { setShowModal(true); setNewKey(null); }}>Generate Key</button>
+        <button className="btn btn-primary" onClick={() => { setShowModal(true); setNewKey(null); setError(null); }}>Generate Key</button>
       </div>
 
       <div className="table-container">
@@ -156,6 +161,7 @@ export default function ApiKeys() {
                   <label>Rate Limit (requests/min)</label>
                   <input type="number" value={form.rate_limit} onChange={(e) => setForm({ ...form, rate_limit: e.target.value })} />
                 </div>
+                {error && <p style={{ color: '#e74c3c', fontSize: 13, margin: '8px 0' }}>{error}</p>}
                 <div className="modal-actions">
                   <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-primary" onClick={handleGenerate} disabled={!form.tenant_id}>Generate</button>
