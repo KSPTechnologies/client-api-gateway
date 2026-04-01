@@ -117,7 +117,7 @@ export async function handlePurchaseOrders(
       warehouseIdentifier: creds.warehouseIdentifier,
       purchaseOrderTypeName: body.purchaseOrderTypeName || 'Purchase Order',
       purchaseOrderDate: body.purchaseOrderDate || new Date().toISOString().split('T')[0],
-      currencyCode: body.currencyCode || 'USD',
+      currencyId: body.currencyId || '1',
     };
 
     try {
