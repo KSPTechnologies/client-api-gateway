@@ -74,14 +74,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const id = crypto.randomUUID();
   const rateLimit = body.rate_limit || 60;
 
+  const environment = body.environment || 'sandbox';
+
   await env.DB.prepare(
     `INSERT INTO api_keys (id, key_hash, tenant_id, label, active, rate_limit, environment, created_at)
      VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'))`
   )
     .bind(id, keyHash, body.tenant_id, body.label || null, rateLimit, environment)
     .run();
-
-  const environment = body.environment || 'sandbox';
 
   await env.KV.put(`apikey:${keyHash}`, JSON.stringify({
     tenantId: body.tenant_id,
