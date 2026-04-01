@@ -47,7 +47,7 @@ export async function handleInventory(
 ): Promise<Response> {
   // GET /v1/inventory — list all inventory (passthrough to Logiwa with tenant scoping)
   if (request.method === 'GET' && path === '/v1/inventory') {
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
     if (!creds) {
@@ -118,7 +118,7 @@ export async function handleInventory(
 
     // For cache misses, query Logiwa live and backfill cache
     if (missedSkus.length > 0) {
-      const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+      const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
       const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
       if (creds) {
         try {

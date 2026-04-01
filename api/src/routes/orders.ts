@@ -49,7 +49,7 @@ export async function handleOrders(
 
   // GET /v1/orders — list orders (passthrough to Logiwa with tenant scoping)
   if (method === 'GET' && path === '/v1/orders') {
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
     if (!creds) {
@@ -118,7 +118,7 @@ export async function handleOrders(
       .run();
 
     // Inject gateway fields — client sends everything else
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
     let logiwaOrderId: string | null = null;
@@ -205,7 +205,7 @@ export async function handleOrders(
       throw badRequest('Bulk requests limited to 50 orders maximum');
     }
 
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
     if (!creds) {
@@ -291,7 +291,7 @@ export async function handleOrders(
     const logiwaIdentifier = (row?.logiwa_order_id as string) || orderId;
 
     // Fetch full details from Logiwa
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
     if (creds) {

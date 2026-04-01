@@ -36,7 +36,7 @@ export async function handleTracking(
   let estimatedDelivery: string | null = null;
 
   if (order.logiwa_order_id) {
-    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
     if (creds) {
       try {

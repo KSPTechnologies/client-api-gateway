@@ -45,7 +45,7 @@ export async function handleProducts(
   path: string
 ): Promise<Response> {
   const method = request.method;
-  const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+  const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
   const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
   if (!creds) {

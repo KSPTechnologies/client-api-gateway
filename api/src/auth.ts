@@ -5,6 +5,7 @@ export interface TenantContext {
   tenantName: string;
   rateLimit: number;
   active: boolean;
+  environment?: 'sandbox' | 'production';
 }
 
 /**

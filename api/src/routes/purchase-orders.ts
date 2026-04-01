@@ -45,7 +45,7 @@ export async function handlePurchaseOrders(
   path: string
 ): Promise<Response> {
   const method = request.method;
-  const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId);
+  const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
   const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
 
   // GET /v1/purchase-orders — list purchase orders (passthrough to Logiwa with tenant scoping)

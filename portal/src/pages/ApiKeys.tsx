@@ -6,6 +6,7 @@ interface ApiKey {
   tenant_id: string;
   tenant_name: string;
   label: string | null;
+  environment: string | null;
   active: number;
   rate_limit: number;
   last_used_at: string | null;
@@ -23,7 +24,7 @@ export default function ApiKeys() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
-  const [form, setForm] = useState({ tenant_id: '', label: '', rate_limit: '60' });
+  const [form, setForm] = useState({ tenant_id: '', label: '', rate_limit: '60', environment: 'sandbox' as 'sandbox' | 'production' });
 
   const loadKeys = () => {
     fetch('/api/api-keys')
@@ -46,12 +47,13 @@ export default function ApiKeys() {
         tenant_id: form.tenant_id,
         label: form.label || undefined,
         rate_limit: parseInt(form.rate_limit),
+        environment: form.environment,
       }),
     });
     if (res.ok) {
       const data = await res.json() as { key: string };
       setNewKey(data.key);
-      setForm({ tenant_id: '', label: '', rate_limit: '60' });
+      setForm({ tenant_id: '', label: '', rate_limit: '60', environment: 'sandbox' });
       loadKeys();
     }
   };
@@ -84,6 +86,7 @@ export default function ApiKeys() {
               <tr>
                 <th>Client</th>
                 <th>Label</th>
+                <th>Environment</th>
                 <th>Rate Limit</th>
                 <th>Status</th>
                 <th>Last Used</th>
@@ -96,6 +99,7 @@ export default function ApiKeys() {
                 <tr key={k.id}>
                   <td>{k.tenant_name}</td>
                   <td>{k.label || '—'}</td>
+                  <td><span className={`badge ${k.environment === 'production' ? 'active' : 'inactive'}`}>{k.environment || 'sandbox'}</span></td>
                   <td>{k.rate_limit}/min</td>
                   <td><span className={`badge ${k.active ? 'active' : 'inactive'}`}>{k.active ? 'Active' : 'Revoked'}</span></td>
                   <td>{k.last_used_at ? formatDate(k.last_used_at) : 'Never'}</td>
@@ -139,7 +143,14 @@ export default function ApiKeys() {
                 </div>
                 <div className="form-group">
                   <label>Label (optional)</label>
-                  <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g. production, staging" />
+                  <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g. main, testing" />
+                </div>
+                <div className="form-group">
+                  <label>Environment</label>
+                  <select value={form.environment} onChange={(e) => setForm({ ...form, environment: e.target.value as 'sandbox' | 'production' })}>
+                    <option value="sandbox">Sandbox</option>
+                    <option value="production">Production</option>
+                  </select>
                 </div>
                 <div className="form-group">
                   <label>Rate Limit (requests/min)</label>

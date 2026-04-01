@@ -59,13 +59,16 @@ interface TenantLogiwaConfig {
 
 /**
  * Look up a tenant's Logiwa environment and client identifier from D1.
+ * If environmentOverride is provided (from the API key), it takes precedence
+ * over the tenant-level logiwa_environment setting.
  */
-export async function getTenantLogiwaConfig(env: Env, tenantId: string): Promise<TenantLogiwaConfig> {
+export async function getTenantLogiwaConfig(env: Env, tenantId: string, environmentOverride?: LogiwaEnvironment): Promise<TenantLogiwaConfig> {
   const row = await env.DB.prepare(
     'SELECT logiwa_environment, logiwa_sandbox_client_id, logiwa_prod_client_id FROM tenants WHERE id = ?'
   ).bind(tenantId).first();
 
-  const environment: LogiwaEnvironment = (row?.logiwa_environment === 'production') ? 'production' : 'sandbox';
+  const environment: LogiwaEnvironment = environmentOverride
+    ?? ((row?.logiwa_environment === 'production') ? 'production' : 'sandbox');
   const clientIdentifier = environment === 'production'
     ? (row?.logiwa_prod_client_id as string | undefined)
     : (row?.logiwa_sandbox_client_id as string | undefined);
