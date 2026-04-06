@@ -30,9 +30,10 @@ Each API key has a configurable rate limit (default: 60 requests/minute). Rate l
 ```
 X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 58
+X-RateLimit-Reset: 60
 ```
 
-If you exceed the limit, you'll receive a `429 Too Many Requests` response. Wait and retry.
+If you exceed the limit, you'll receive a `429 Too Many Requests` response with a `Retry-After` header indicating how many seconds to wait before retrying.
 
 ---
 
@@ -610,8 +611,15 @@ Create a new product/SKU. This should be used when you need to add a product to 
   "sku": "PRD-WIDGET-100",
   "name": "Widget 100",
   "description": "Standard widget, blue",
-  "uomPackTypeName": "Unit",
-  "isActive": true
+  "uomPackTypeName": "Piece",
+  "packingSettings": {
+    "uomPackTypeWeightUnitId": 1,
+    "uomPackTypeWeight": 1.0,
+    "uomPackTypeDimensionUnitId": 1,
+    "uomPackTypeLength": 10,
+    "uomPackTypeWidth": 10,
+    "uomPackTypeHeight": 5
+  }
 }
 ```
 
@@ -681,6 +689,10 @@ Create a new product/SKU. This should be used when you need to add a product to 
 | Field | Description |
 |-------|-------------|
 | `sku` | Unique product SKU |
+| `name` | Product name |
+| `description` | Product description |
+| `uomPackTypeName` | Unit of measure: `Piece`, `Unit`, `Case`, `Pack`, or `Master Case` |
+| `packingSettings` | Packing dimensions/weight (see Packing Settings below) |
 
 ### Complete Field Reference — Product
 
@@ -822,13 +834,9 @@ Submit an inbound purchase order (ASN) to notify the warehouse of incoming inven
   "plannedReceivingDate": "2026-03-25",
   "referenceNumber": "VENDOR-REF-123",
   "purchaseOrderLineList": [
-    { "sku": "881469", "packQuantity": 1 },
-    { "sku": "890354", "packQuantity": 1 },
-    { "sku": "888940", "packQuantity": 1 },
-    { "sku": "888932", "packQuantity": 1 },
-    { "sku": "889297", "packQuantity": 1 },
-    { "sku": "890349", "packQuantity": 1 },
-    { "sku": "890348", "packQuantity": 1 }
+    { "sku": "881469", "packType": "Piece", "packQuantity": 1 },
+    { "sku": "890354", "packType": "Piece", "packQuantity": 1 },
+    { "sku": "888940", "packType": "Piece", "packQuantity": 5, "unitPrice": 12.50 }
   ]
 }
 ```
@@ -838,21 +846,22 @@ Submit an inbound purchase order (ASN) to notify the warehouse of incoming inven
 | Field | Description |
 |-------|-------------|
 | `code` | Your unique PO number |
-| `purchaseOrderLineList` | Array of line items (at minimum `sku` and `packQuantity`) |
+| `vendor` | Vendor name (must match an existing vendor in the system) |
+| `purchaseOrderLineList` | Array of line items (requires `sku`, `packType`, and `packQuantity`) |
 
 ### Complete Field Reference — Purchase Order
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `code` | string | **Required.** Your unique PO number |
-| `vendor` | string | Vendor/supplier name |
+| `vendor` | string | **Required.** Vendor/supplier name (must match an existing vendor) |
 | `purchaseOrderDate` | string | PO date, ISO format (default: today) |
 | `actualReceivingDate` | string | Actual receiving date |
 | `plannedReceivingDate` | string | Expected receiving date |
 | `plannedArrivalDate` | string | Expected arrival date |
 | `actualArrivalDate` | string | Actual arrival date |
 | `referenceNumber` | string | Vendor reference number |
-| `currencyId` | string | Currency ID |
+| `currencyId` | string | Currency ID (defaults to USD if not provided) |
 | `note` | string | PO notes |
 | `customFieldDateTime1` | string | Custom date field 1 |
 | `customFieldDateTime2` | string | Custom date field 2 |
@@ -889,9 +898,9 @@ Both vendor address objects share the same structure:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `sku` | string | **Yes** | Product SKU |
+| `sku` | string | **Yes** | Product SKU (must exist in the system) |
 | `packQuantity` | integer | **Yes** | Quantity expected |
-| `packType` | string | No | Pack type (e.g. "Unit", "Case") |
+| `packType` | string | **Yes** | Pack type: `Piece`, `Unit`, `Case`, `Pack`, or `Master Case` |
 | `unitPrice` | number | No | Unit cost |
 | `taxRate` | number | No | Tax rate |
 | `note` | string | No | Line item note |
@@ -909,6 +918,7 @@ Both vendor address objects share the same structure:
 | `clientIdentifier` | Assigned by the gateway based on your API key |
 | `warehouseIdentifier` | Assigned by the gateway |
 | `purchaseOrderTypeName` | Handled by the gateway |
+| `currencyId` | Defaults to USD |
 
 ### Example Response
 
