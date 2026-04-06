@@ -55,7 +55,7 @@ export async function handlePurchaseOrders(
     }
 
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '0');
+    const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
     const size = parseInt(url.searchParams.get('size') || '50');
 
     // Build filters — always inject client identifier for tenant scoping
@@ -181,7 +181,7 @@ export async function handlePurchaseOrders(
     }
 
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '0');
+    const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
     const size = parseInt(url.searchParams.get('size') || '50');
 
     const filters: Record<string, string> = { 'Code.eq': poCode };

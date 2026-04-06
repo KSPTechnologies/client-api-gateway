@@ -392,7 +392,7 @@ You do **not** need to set up webhooks — the gateway handles that. To check if
 ## 3. List Orders
 
 ```
-GET /v1/orders?page=0&size=50
+GET /v1/orders?page=1&size=50
 ```
 
 List your orders with pagination and filtering. Results are automatically scoped to your account — you will only see your own orders.
@@ -409,10 +409,10 @@ List your orders with pagination and filtering. Results are automatically scoped
 You can filter results using Logiwa Query Language (LQL) parameters:
 
 ```
-GET /v1/orders?page=0&size=50&Code.eq=ORD-001
-GET /v1/orders?page=0&size=50&Status.eq=5
-GET /v1/orders?page=0&size=50&CreatedDateTime.bt=2026-01-01,2026-01-31
-GET /v1/orders?page=0&size=50&ActualShipmentDate.bt=2026-03-01,2026-03-31
+GET /v1/orders?page=1&size=50&Code.eq=ORD-001
+GET /v1/orders?page=1&size=50&Status.eq=5
+GET /v1/orders?page=1&size=50&CreatedDateTime.bt=2026-01-01,2026-01-31
+GET /v1/orders?page=1&size=50&ActualShipmentDate.bt=2026-03-01,2026-03-31
 ```
 
 LQL operators: `eq` (equals), `gt` (greater than), `gte` (greater or equal), `lt` (less than), `lte` (less or equal), `bt` (between, inclusive).
@@ -488,7 +488,7 @@ Tracking information is updated periodically. If the order hasn't shipped yet, `
 ## 6. List All Inventory
 
 ```
-GET /v1/inventory?page=0&size=200
+GET /v1/inventory?page=1&size=200
 ```
 
 Page through all inventory for your account. Results are automatically scoped to your account — you will only see your own inventory.
@@ -505,8 +505,8 @@ This is useful for syncing your full inventory with your own system. You can pag
 ### LQL Filtering
 
 ```
-GET /v1/inventory?page=0&size=200&Sku.eq=WIDGET-100
-GET /v1/inventory?page=0&size=200&WarehouseIdentifier.eq={uuid}
+GET /v1/inventory?page=1&size=200&Sku.eq=WIDGET-100
+GET /v1/inventory?page=1&size=200&WarehouseIdentifier.eq={uuid}
 ```
 
 ### Example Response
@@ -557,7 +557,7 @@ A `null` quantity means the SKU was not found in inventory. Query up to 100 SKUs
 ## 8. List Products
 
 ```
-GET /v1/products?page=0&size=100
+GET /v1/products?page=1&size=100
 ```
 
 List all products/SKUs in your account. Results are automatically scoped to your account. This is useful for checking which products exist before submitting purchase orders or shipment orders.
@@ -572,10 +572,10 @@ List all products/SKUs in your account. Results are automatically scoped to your
 ### LQL Filtering
 
 ```
-GET /v1/products?page=0&size=100&Sku.eq=WIDGET-100
-GET /v1/products?page=0&size=100&ProductTypeName.eq=T-Shirt
-GET /v1/products?page=0&size=100&ProductGroupName.eq=Apparel
-GET /v1/products?page=0&size=100&CreatedDateTime.bt=2026-01-01,2026-03-31
+GET /v1/products?page=1&size=100&Sku.eq=WIDGET-100
+GET /v1/products?page=1&size=100&ProductTypeName.eq=T-Shirt
+GET /v1/products?page=1&size=100&ProductGroupName.eq=Apparel
+GET /v1/products?page=1&size=100&CreatedDateTime.bt=2026-01-01,2026-03-31
 ```
 
 ### Example Response
@@ -937,7 +937,7 @@ Both vendor address objects share the same structure:
 ## 11. List Purchase Orders
 
 ```
-GET /v1/purchase-orders?page=0&size=50
+GET /v1/purchase-orders?page=1&size=50
 ```
 
 Page through your purchase orders. Results are automatically scoped to your account.
@@ -952,8 +952,8 @@ Page through your purchase orders. Results are automatically scoped to your acco
 ### LQL Filtering
 
 ```
-GET /v1/purchase-orders?page=0&size=50&Code.eq=PO-001
-GET /v1/purchase-orders?page=0&size=50&CreatedDate.bt=2026-01-01,2026-01-31
+GET /v1/purchase-orders?page=1&size=50&Code.eq=PO-001
+GET /v1/purchase-orders?page=1&size=50&CreatedDate.bt=2026-01-01,2026-01-31
 ```
 
 ### Example Response
@@ -975,7 +975,7 @@ Retrieve details for a purchase order using the `logiwaIdentifier` from the subm
 ## 13. Get Purchase Order Receipts
 
 ```
-GET /v1/purchase-orders/{code}/receipts?page=0&size=50
+GET /v1/purchase-orders/{code}/receipts?page=1&size=50
 ```
 
 Retrieve receiving history for a purchase order using the PO `code`.

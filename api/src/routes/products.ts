@@ -55,7 +55,7 @@ export async function handleProducts(
   // GET /v1/products — list products (passthrough to Logiwa with tenant scoping)
   if (method === 'GET' && path === '/v1/products') {
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '0');
+    const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
     const size = parseInt(url.searchParams.get('size') || '100');
 
     // Build filters — always inject client identifier for tenant scoping
