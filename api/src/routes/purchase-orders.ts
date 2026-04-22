@@ -1,7 +1,7 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, getPurchaseOrder, getPurchaseOrderReceipts, LogiwaCredentials } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, getPurchaseOrder, getPurchaseOrderReceipts, getPurchaseOrderDetail, findPurchaseOrderByCode, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
 
 async function logiwaFetchDirect(
@@ -171,7 +171,7 @@ export async function handlePurchaseOrders(
     }
   }
 
-  // GET /v1/purchase-orders/:id/receipts — get PO receiving history
+  // GET /v1/purchase-orders/:id/receipts — get PO line-level receiving status
   const receiptsMatch = path.match(/^\/v1\/purchase-orders\/([^/]+)\/receipts$/);
   if (method === 'GET' && receiptsMatch) {
     const poCode = receiptsMatch[1];
@@ -180,23 +180,95 @@ export async function handlePurchaseOrders(
       throw badRequest('Logiwa credentials not configured for this environment');
     }
 
-    const url = new URL(request.url);
-    const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
-    const size = parseInt(url.searchParams.get('size') || '50');
+    try {
+      // Look up the PO identifier from the code
+      const po = await findPurchaseOrderByCode(creds, poCode);
+      if (!po) throw notFound(`Purchase order ${poCode} not found`);
 
-    const filters: Record<string, string> = { 'Code.eq': poCode };
-    if (creds.clientIdentifier) {
-      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+      // Fetch detail (line-level ordered/received totals) and receiving history
+      // (per-event receipts with date, qty, difference, damage) in parallel.
+      const receiptFilters: Record<string, string> = { 'Code.eq': poCode };
+      if (creds.clientIdentifier) {
+        receiptFilters['ClientIdentifier.eq'] = creds.clientIdentifier;
+      }
+      const [detail, receiptEvents] = await Promise.all([
+        getPurchaseOrderDetail(creds, po.identifier),
+        getPurchaseOrderReceipts(creds, 0, 500, receiptFilters),
+      ]);
+      if (!detail) throw notFound(`Purchase order detail for ${poCode} not found`);
+
+      // Group receipt events by SKU, dropping Logiwa's "never received" sentinel date.
+      const eventsBySku = new Map<string, any[]>();
+      for (const ev of receiptEvents || []) {
+        const sku = ev.productSku;
+        if (!sku) continue;
+        const rawDate = ev.receiptDate;
+        const receiptDate = (!rawDate || rawDate.startsWith('0001-01-01')) ? null : rawDate;
+        if (!receiptDate) continue; // skip empty sentinel rows — they add no info
+        if (!eventsBySku.has(sku)) eventsBySku.set(sku, []);
+        eventsBySku.get(sku)!.push({
+          receiptDate,
+          receivedQuantity: ev.receivedUOMQuantity ?? ev.uomQuantity ?? 0,
+          packQuantity: ev.packQuantity ?? 0,
+          packType: ev.packTypeName ?? null,
+          receiptDifference: ev.receiptDifference ?? 0,
+          damagedQuantity: ev.damageReceivedQuantity ?? 0,
+          warehouseCode: ev.warehouseCode ?? null,
+        });
+      }
+
+      // Sort each SKU's events newest-first so the client sees the latest receipt first.
+      for (const list of eventsBySku.values()) {
+        list.sort((a, b) => (b.receiptDate || '').localeCompare(a.receiptDate || ''));
+      }
+
+      const lines = (detail.purchaseOrderLineList || []).map((line: any) => {
+        const events = eventsBySku.get(line.sku) || [];
+        const ordered = line.linePackQuantity || 0;
+        const received = line.receivedQuantity || 0;
+        return {
+          sku: line.sku,
+          name: line.name,
+          orderedQuantity: ordered,
+          receivedQuantity: received,
+          shortQuantity: Math.max(0, ordered - received),
+          packType: line.linePackTypeName || 'Unit',
+          isFullyReceived: received >= ordered,
+          lastReceivedDate: events[0]?.receiptDate || null,
+          receiptEvents: events,
+        };
+      });
+
+      const totalOrdered = lines.reduce((sum: number, l: any) => sum + l.orderedQuantity, 0);
+      const totalReceived = lines.reduce((sum: number, l: any) => sum + l.receivedQuantity, 0);
+      const totalDamaged = lines.reduce(
+        (sum: number, l: any) => sum + l.receiptEvents.reduce((s: number, e: any) => s + (e.damagedQuantity || 0), 0),
+        0
+      );
+
+      return Response.json({
+        purchaseOrderCode: poCode,
+        purchaseOrderIdentifier: po.identifier,
+        status: detail.purchaseOrderStatus || 'Pending',
+        totalOrdered,
+        totalReceived,
+        totalShort: Math.max(0, totalOrdered - totalReceived),
+        totalDamaged,
+        isFullyReceived: totalReceived >= totalOrdered && totalOrdered > 0,
+        lineItems: lines,
+      });
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('PO receipts fetch failed:', errMsg);
+
+      await env.DB.prepare(
+        `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+         VALUES (?, ?, 'GET', ?, 502, 0, 0, datetime('now'))`
+      ).bind(tenant.tenantId, `/v1/purchase-orders/${poCode}/receipts`, errMsg).run();
+
+      return Response.json({ error: errMsg }, { status: 502 });
     }
-
-    const receipts = await getPurchaseOrderReceipts(creds, page, size, filters);
-
-    return Response.json({
-      purchaseOrderCode: poCode,
-      receipts,
-      page,
-      size,
-    });
   }
 
   throw methodNotAllowed();

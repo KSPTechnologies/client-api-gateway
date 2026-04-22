@@ -214,6 +214,23 @@ export async function getShipmentOrder(
   return logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/${identifier}`);
 }
 
+/**
+ * Fetch order via the list endpoint with an identifier filter.
+ * This returns the shipmentInfo array (per-package shipment detail) which
+ * the single-order GET endpoint does not include.
+ */
+export async function getShipmentOrderWithShipments(
+  creds: LogiwaCredentials,
+  identifier: string
+): Promise<any> {
+  const result = await logiwaFetch(
+    creds,
+    'GET',
+    `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${identifier}`
+  );
+  return result?.data?.[0] || null;
+}
+
 export async function listShipmentOrders(
   creds: LogiwaCredentials,
   index: number,
@@ -342,6 +359,33 @@ export async function getPurchaseOrder(
   return logiwaFetch(creds, 'GET', `/v3.1/PurchaseOrder/${identifier}`);
 }
 
+/**
+ * Fetch PO detail including line-level received quantities.
+ * Uses the /v3.1/PurchaseOrder/detail/{identifier} endpoint.
+ */
+export async function getPurchaseOrderDetail(
+  creds: LogiwaCredentials,
+  identifier: string
+): Promise<any> {
+  return logiwaFetch(creds, 'GET', `/v3.1/PurchaseOrder/detail/${identifier}`);
+}
+
+/**
+ * Look up a PO identifier from a PO code via the list endpoint.
+ */
+export async function findPurchaseOrderByCode(
+  creds: LogiwaCredentials,
+  code: string
+): Promise<any> {
+  const filters: Record<string, string> = { 'Code.eq': code };
+  if (creds.clientIdentifier) {
+    filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+  }
+  const params = new URLSearchParams(filters);
+  const result = await logiwaFetch(creds, 'GET', `/v3.1/PurchaseOrder/list/i/0/s/1?${params.toString()}`);
+  return result?.data?.[0] || null;
+}
+
 export async function listPurchaseOrders(
   creds: LogiwaCredentials,
   index: number,
@@ -362,7 +406,7 @@ export async function getPurchaseOrderReceipts(
   size: number,
   filters?: Record<string, string>
 ): Promise<any[]> {
-  let path = `/v3.1/Report/PurchaseOrderReceivingHistory/i/${index}/s/${size}`;
+  let path = `/v3.2/Report/PurchaseOrderReceivingHistory/i/${index}/s/${size}`;
   if (filters) {
     const params = new URLSearchParams(filters);
     path += `?${params.toString()}`;
