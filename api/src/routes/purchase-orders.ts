@@ -193,7 +193,7 @@ export async function handlePurchaseOrders(
       }
       const [detail, receiptEvents] = await Promise.all([
         getPurchaseOrderDetail(creds, po.identifier),
-        getPurchaseOrderReceipts(creds, 0, 500, receiptFilters),
+        getPurchaseOrderReceipts(creds, 0, 200, receiptFilters),
       ]);
       if (!detail) throw notFound(`Purchase order detail for ${poCode} not found`);
 
