@@ -3,6 +3,7 @@ import { TenantContext } from '../auth';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
 import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, getShipmentOrder, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
+import { normalizeStatesInPayload } from '../lib/state-codes';
 
 async function logiwaFetchDirect(
   creds: LogiwaCredentials,
@@ -136,6 +137,7 @@ export async function handleOrders(
         shipmentOrderDate: body.shipmentOrderDate || new Date().toISOString().split('T')[0],
         useSameAddress: body.useSameAddress !== undefined ? body.useSameAddress : true,
       };
+      normalizeStatesInPayload(payload);
 
       try {
         const result = await logiwaFetchDirect(creds, 'POST', '/v3.1/ShipmentOrder/create', payload);
@@ -227,6 +229,7 @@ export async function handleOrders(
       shipmentOrderDate: order.shipmentOrderDate || new Date().toISOString().split('T')[0],
       useSameAddress: order.useSameAddress !== undefined ? order.useSameAddress : true,
     }));
+    normalizeStatesInPayload(payload);
 
     try {
       const result = await logiwaFetchDirect(creds, 'POST', '/v3.1/ShipmentOrder/create/bulk', payload);

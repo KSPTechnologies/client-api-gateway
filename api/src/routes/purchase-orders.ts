@@ -3,6 +3,7 @@ import { TenantContext } from '../auth';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
 import { getLogiwaCredentials, getTenantLogiwaConfig, getPurchaseOrder, getPurchaseOrderReceipts, getPurchaseOrderDetail, findPurchaseOrderByCode, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
+import { normalizeStatesInPayload } from '../lib/state-codes';
 
 async function logiwaFetchDirect(
   creds: LogiwaCredentials,
@@ -119,6 +120,7 @@ export async function handlePurchaseOrders(
       purchaseOrderDate: body.purchaseOrderDate || new Date().toISOString().split('T')[0],
       currencyId: body.currencyId || '1',
     };
+    normalizeStatesInPayload(payload);
 
     try {
       const result = await logiwaFetchDirect(creds, 'POST', '/v3.1/PurchaseOrder/create', payload);
