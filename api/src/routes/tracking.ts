@@ -1,7 +1,7 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { notFound, methodNotAllowed } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrder } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments } from '../lib/logiwa';
 
 export async function handleTracking(
   request: Request,
@@ -34,13 +34,14 @@ export async function handleTracking(
   let carrier: string | null = null;
   let trackingNumber: string | null = null;
   let estimatedDelivery: string | null = null;
+  let shipments: any[] = [];
 
   if (order.logiwa_order_id) {
     const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
     const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
     if (creds) {
       try {
-        const logiwaOrder = await getShipmentOrder(creds, order.logiwa_order_id as string);
+        const logiwaOrder = await getShipmentOrderWithShipments(creds, order.logiwa_order_id as string);
         if (logiwaOrder) {
           carrier = logiwaOrder.carrierName || null;
           trackingNumber = logiwaOrder.trackingNumbers?.[0] || null;
@@ -52,6 +53,34 @@ export async function handleTracking(
             carrier: logiwaOrder.carrierName || null,
             shippingCost: logiwaOrder.totalShippingCost || null,
           };
+
+          // Group shipmentInfo rows by tracking number so each physical
+          // package becomes one entry with its items[] array.
+          const byTracking = new Map<string, any>();
+          for (const info of (logiwaOrder.shipmentInfo || [])) {
+            const key = info.trackingNumber || `__no-tracking-${byTracking.size}`;
+            if (!byTracking.has(key)) {
+              byTracking.set(key, {
+                items: [],
+                carrier: logiwaOrder.carrierName || null,
+                packageType: info.licensePlateTypeCode || null,
+                shipmentDate: info.shipmentDate || null,
+                packageWeight: info.licensePlateWeight ?? info.licensePlateCalculatedWeight ?? null,
+                trackingNumber: info.trackingNumber || null,
+                shippingService: info.shippingOptionName || null,
+                packageWeightUnit: info.licensePlateWeightUnitName || null,
+              });
+            }
+            byTracking.get(key).items.push({
+              sku: info.productSku || null,
+              name: info.productName || null,
+              packType: info.packTypeName || null,
+              quantity: info.packQuantity ?? null,
+              expiryDate: info.expiryDate || null,
+              lotBatchNumber: info.lotBatchNumber || null,
+            });
+          }
+          shipments = Array.from(byTracking.values());
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
@@ -71,5 +100,6 @@ export async function handleTracking(
     carrier,
     trackingNumber,
     estimatedDelivery,
+    shipments,
   });
 }

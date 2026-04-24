@@ -477,11 +477,32 @@ Retrieve tracking details for a shipped order.
   },
   "carrier": "UPS",
   "trackingNumber": "1Z999AA10123456784",
-  "estimatedDelivery": "2026-03-25T00:00:00Z"
+  "estimatedDelivery": "2026-03-25T00:00:00Z",
+  "shipments": [
+    {
+      "items": [
+        {
+          "sku": "881508",
+          "name": "Pressure Gauge",
+          "packType": "Unit",
+          "quantity": 1,
+          "expiryDate": null,
+          "lotBatchNumber": null
+        }
+      ],
+      "carrier": "Usps",
+      "packageType": "6x6x4",
+      "shipmentDate": "2026-04-15T15:36:16.147Z",
+      "packageWeight": 0.5,
+      "trackingNumber": "9400136206249357431403",
+      "shippingService": "KSPEhub-USPS Ground Advantage",
+      "packageWeightUnit": "Pound"
+    }
+  ]
 }
 ```
 
-Tracking information is updated periodically. If the order hasn't shipped yet, `tracking` will be `null`.
+Tracking information is updated periodically. If the order hasn't shipped yet, `tracking` will be `null` and `shipments` will be an empty array. Orders that ship in multiple packages produce one entry per package in `shipments`, each with its own tracking number and item list.
 
 ---
 
