@@ -51,8 +51,11 @@ async function syncTracking(env: Env): Promise<void> {
     byTenant.get(tid)!.push(order);
   }
 
+  console.log(`[syncTracking] grouped into ${byTenant.size} tenants: ${[...byTenant.keys()].join(',')}`);
   for (const [tenantId, tenantOrders] of byTenant) {
-    const creds = await getCredsForTenant(env, tenantId);
+    const config = await getTenantLogiwaConfig(env, tenantId);
+    const creds = getLogiwaCredentials(env, config.environment, config.clientIdentifier);
+    console.log(`[syncTracking] tenant=${tenantId} env=${config.environment} clientId=${config.clientIdentifier ?? 'NONE'} credsOk=${!!creds} orders=${tenantOrders.length}`);
     if (!creds) continue;
 
     for (const order of tenantOrders) {
