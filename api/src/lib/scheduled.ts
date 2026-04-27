@@ -1,5 +1,5 @@
 import { Env } from '../index';
-import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrder, queryInventory, LogiwaCredentials } from './logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, LogiwaCredentials } from './logiwa';
 
 export async function handleScheduled(
   event: ScheduledEvent,
@@ -58,16 +58,18 @@ async function syncTracking(env: Env): Promise<void> {
     console.log(`[syncTracking] tenant=${tenantId} env=${config.environment} clientId=${config.clientIdentifier ?? 'NONE'} credsOk=${!!creds} orders=${tenantOrders.length}`);
     if (!creds) continue;
 
-    let probeIndex = 0;
     for (const order of tenantOrders) {
       try {
-        const logiwaOrder = await getShipmentOrder(creds, order.logiwa_order_id as string);
-        if (probeIndex < 2) {
-          console.log(`[syncTracking] probe[${probeIndex}] orderId=${order.id} logiwaId=${order.logiwa_order_id} response=${JSON.stringify(logiwaOrder)?.slice(0, 800)}`);
-          probeIndex++;
-        }
+        // Use the list endpoint with an identifier filter — Logiwa's
+        // single-order GET (/v3.1/ShipmentOrder/{id}) started returning
+        // null some time around 2026-04-17, breaking this cron silently.
+        // The list endpoint returns the same data plus shipmentInfo.
+        const logiwaOrder = await getShipmentOrderWithShipments(creds, order.logiwa_order_id as string);
         if (!logiwaOrder) {
-          console.log(`[syncTracking] order ${order.id} got falsy response from Logiwa`);
+          unchangedCount++;
+          await env.DB.prepare(
+            `UPDATE orders SET updated_at = datetime('now') WHERE id = ?`
+          ).bind(order.id).run();
           continue;
         }
 
