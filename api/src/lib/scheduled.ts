@@ -31,11 +31,17 @@ async function syncTracking(env: Env): Promise<void> {
      FROM orders o
      JOIN tenants t ON t.id = o.tenant_id
      WHERE o.status = 'sent' AND o.logiwa_order_id IS NOT NULL
-     ORDER BY o.created_at ASC
+     ORDER BY o.updated_at ASC
      LIMIT 50`
   ).all();
 
+  console.log(`[syncTracking] picked ${orders?.length ?? 0} sent orders to check`);
   if (!orders || orders.length === 0) return;
+
+  let fulfilledCount = 0;
+  let closedCount = 0;
+  let unchangedCount = 0;
+  let errorCount = 0;
 
   // Group by tenant to reuse credentials
   const byTenant = new Map<string, any[]>();
@@ -70,6 +76,8 @@ async function syncTracking(env: Env): Promise<void> {
           )
             .bind(newStatus, order.id)
             .run();
+          if (newStatus === 'fulfilled') fulfilledCount++;
+          else if (newStatus === 'closed') closedCount++;
 
           const callbackUrl = order.callback_url as string;
           if (callbackUrl && trackingNumbers.length > 0) {
@@ -90,12 +98,27 @@ async function syncTracking(env: Env): Promise<void> {
               console.error(`Callback failed for order ${order.id}:`, err);
             }
           }
+        } else {
+          // Bump updated_at even when status didn't change so this order
+          // moves to the back of the queue. Prevents head-of-line blocking
+          // when the oldest sent orders sit in a Logiwa status we don't
+          // map (e.g., 'planning', 'on hold', 'allocated').
+          await env.DB.prepare(
+            `UPDATE orders SET updated_at = datetime('now') WHERE id = ?`
+          )
+            .bind(order.id)
+            .run();
+          unchangedCount++;
+          console.log(`[syncTracking] order ${order.id} unchanged: logiwaStatus=${logiwaOrder.shipmentOrderStatusName} tracking=${trackingNumbers.length}`);
         }
       } catch (err) {
+        errorCount++;
         console.error(`Tracking sync failed for order ${order.id}:`, err);
       }
     }
   }
+
+  console.log(`[syncTracking] done: fulfilled=${fulfilledCount} closed=${closedCount} unchanged=${unchangedCount} errors=${errorCount}`);
 }
 
 async function refreshInventoryCache(env: Env): Promise<void> {
