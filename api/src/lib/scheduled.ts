@@ -58,10 +58,18 @@ async function syncTracking(env: Env): Promise<void> {
     console.log(`[syncTracking] tenant=${tenantId} env=${config.environment} clientId=${config.clientIdentifier ?? 'NONE'} credsOk=${!!creds} orders=${tenantOrders.length}`);
     if (!creds) continue;
 
+    let probeIndex = 0;
     for (const order of tenantOrders) {
       try {
         const logiwaOrder = await getShipmentOrder(creds, order.logiwa_order_id as string);
-        if (!logiwaOrder) continue;
+        if (probeIndex < 2) {
+          console.log(`[syncTracking] probe[${probeIndex}] orderId=${order.id} logiwaId=${order.logiwa_order_id} response=${JSON.stringify(logiwaOrder)?.slice(0, 800)}`);
+          probeIndex++;
+        }
+        if (!logiwaOrder) {
+          console.log(`[syncTracking] order ${order.id} got falsy response from Logiwa`);
+          continue;
+        }
 
         const logiwaStatus = logiwaOrder.shipmentOrderStatusName?.toLowerCase();
         const trackingNumbers = logiwaOrder.trackingNumbers || [];
