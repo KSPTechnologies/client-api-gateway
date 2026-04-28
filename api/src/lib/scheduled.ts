@@ -61,27 +61,27 @@ async function syncTracking(env: Env): Promise<void> {
     let probedOnce = false;
     for (const order of tenantOrders) {
       try {
-        // ── DIAGNOSTIC PROBE (REVERT AFTER) ──
+        // ── DIAGNOSTIC PROBE 2 (REVERT AFTER) ──
         if (!probedOnce) {
           probedOnce = true;
-          const id = order.logiwa_order_id as string;
           const cid = creds.clientIdentifier ?? '';
+          // Probe a known-recent order (created today via API, definitely sent to Logiwa successfully)
+          const recentLogiwaId = 'f4a25613-c06d-4562-9d94-e66de30344a2';
           try {
-            const r1 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${id}`);
-            console.log(`[probe] list-noclient: totalCount=${r1?.totalCount} dataLen=${r1?.data?.length ?? 0} keys=${r1 ? Object.keys(r1).join(',') : 'null'}`);
-          } catch (e) { console.log(`[probe] list-noclient threw: ${e instanceof Error ? e.message : e}`); }
+            const r1 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${recentLogiwaId}&ClientIdentifier.eq=${cid}`);
+            console.log(`[probe2] recent order ${recentLogiwaId}: totalCount=${r1?.totalCount} dataLen=${r1?.data?.length ?? 0} firstStatus=${r1?.data?.[0]?.shipmentOrderStatusName}`);
+          } catch (e) { console.log(`[probe2] recent threw: ${e instanceof Error ? e.message : e}`); }
+          // List all orders with newest first to see what's actually in Logiwa
           try {
-            const r2 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${id}&ClientIdentifier.eq=${cid}`);
-            console.log(`[probe] list-withclient: totalCount=${r2?.totalCount} dataLen=${r2?.data?.length ?? 0} keys=${r2 ? Object.keys(r2).join(',') : 'null'}`);
-          } catch (e) { console.log(`[probe] list-withclient threw: ${e instanceof Error ? e.message : e}`); }
+            const r2 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/10?ClientIdentifier.eq=${cid}`);
+            const ids = r2?.data?.map((d: any) => `${d.identifier}=${d.shipmentOrderStatusName}`).join(' | ') ?? 'none';
+            console.log(`[probe2] all-for-client total=${r2?.totalCount} returned=${r2?.data?.length ?? 0}: ${ids}`);
+          } catch (e) { console.log(`[probe2] all-for-client threw: ${e instanceof Error ? e.message : e}`); }
+          // Try without ClientIdentifier — see if any auth-visible orders exist at all
           try {
-            const r3 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/${id}`);
-            console.log(`[probe] single-get: type=${typeof r3} keys=${r3 ? Object.keys(r3).slice(0, 10).join(',') : 'null'} status=${r3?.shipmentOrderStatusName}`);
-          } catch (e) { console.log(`[probe] single-get threw: ${e instanceof Error ? e.message : e}`); }
-          try {
-            const r4 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/3?ClientIdentifier.eq=${cid}`);
-            console.log(`[probe] list-anyforclient: totalCount=${r4?.totalCount} dataLen=${r4?.data?.length ?? 0} firstId=${r4?.data?.[0]?.identifier}`);
-          } catch (e) { console.log(`[probe] list-anyforclient threw: ${e instanceof Error ? e.message : e}`); }
+            const r3 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/3`);
+            console.log(`[probe2] no-filter total=${r3?.totalCount} returned=${r3?.data?.length ?? 0} firstClient=${r3?.data?.[0]?.clientIdentifier}`);
+          } catch (e) { console.log(`[probe2] no-filter threw: ${e instanceof Error ? e.message : e}`); }
         }
         const logiwaOrder = await getShipmentOrderWithShipments(creds, order.logiwa_order_id as string);
         if (!logiwaOrder) {
