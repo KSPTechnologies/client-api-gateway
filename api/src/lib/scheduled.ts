@@ -1,5 +1,5 @@
 import { Env } from '../index';
-import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, LogiwaCredentials } from './logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, logiwaFetch, LogiwaCredentials } from './logiwa';
 
 export async function handleScheduled(
   event: ScheduledEvent,
@@ -58,12 +58,31 @@ async function syncTracking(env: Env): Promise<void> {
     console.log(`[syncTracking] tenant=${tenantId} env=${config.environment} clientId=${config.clientIdentifier ?? 'NONE'} credsOk=${!!creds} orders=${tenantOrders.length}`);
     if (!creds) continue;
 
+    let probedOnce = false;
     for (const order of tenantOrders) {
       try {
-        // Use the list endpoint with an identifier filter — Logiwa's
-        // single-order GET (/v3.1/ShipmentOrder/{id}) started returning
-        // null some time around 2026-04-17, breaking this cron silently.
-        // The list endpoint returns the same data plus shipmentInfo.
+        // ── DIAGNOSTIC PROBE (REVERT AFTER) ──
+        if (!probedOnce) {
+          probedOnce = true;
+          const id = order.logiwa_order_id as string;
+          const cid = creds.clientIdentifier ?? '';
+          try {
+            const r1 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${id}`);
+            console.log(`[probe] list-noclient: totalCount=${r1?.totalCount} dataLen=${r1?.data?.length ?? 0} keys=${r1 ? Object.keys(r1).join(',') : 'null'}`);
+          } catch (e) { console.log(`[probe] list-noclient threw: ${e instanceof Error ? e.message : e}`); }
+          try {
+            const r2 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${id}&ClientIdentifier.eq=${cid}`);
+            console.log(`[probe] list-withclient: totalCount=${r2?.totalCount} dataLen=${r2?.data?.length ?? 0} keys=${r2 ? Object.keys(r2).join(',') : 'null'}`);
+          } catch (e) { console.log(`[probe] list-withclient threw: ${e instanceof Error ? e.message : e}`); }
+          try {
+            const r3 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/${id}`);
+            console.log(`[probe] single-get: type=${typeof r3} keys=${r3 ? Object.keys(r3).slice(0, 10).join(',') : 'null'} status=${r3?.shipmentOrderStatusName}`);
+          } catch (e) { console.log(`[probe] single-get threw: ${e instanceof Error ? e.message : e}`); }
+          try {
+            const r4 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/3?ClientIdentifier.eq=${cid}`);
+            console.log(`[probe] list-anyforclient: totalCount=${r4?.totalCount} dataLen=${r4?.data?.length ?? 0} firstId=${r4?.data?.[0]?.identifier}`);
+          } catch (e) { console.log(`[probe] list-anyforclient threw: ${e instanceof Error ? e.message : e}`); }
+        }
         const logiwaOrder = await getShipmentOrderWithShipments(creds, order.logiwa_order_id as string);
         if (!logiwaOrder) {
           unchangedCount++;

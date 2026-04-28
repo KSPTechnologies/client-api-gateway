@@ -113,7 +113,7 @@ async function getToken(creds: LogiwaCredentials): Promise<string> {
 
 // ── HTTP Helper ──────────────────────────────────────
 
-async function logiwaFetch(
+export async function logiwaFetch(
   creds: LogiwaCredentials,
   method: string,
   path: string,
