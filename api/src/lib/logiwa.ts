@@ -218,15 +218,24 @@ export async function getShipmentOrder(
  * Fetch order via the list endpoint with an identifier filter.
  * This returns the shipmentInfo array (per-package shipment detail) which
  * the single-order GET endpoint does not include.
+ *
+ * Logiwa's list endpoints scope by ClientIdentifier — without it, queries
+ * return empty for orders that belong to a sub-client. We mirror the
+ * pattern used in queryInventory and routes/orders.ts list handler.
  */
 export async function getShipmentOrderWithShipments(
   creds: LogiwaCredentials,
   identifier: string
 ): Promise<any> {
+  const filters: Record<string, string> = { 'Identifier.eq': identifier };
+  if (creds.clientIdentifier) {
+    filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+  }
+  const params = new URLSearchParams(filters);
   const result = await logiwaFetch(
     creds,
     'GET',
-    `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${identifier}`
+    `/v3.1/ShipmentOrder/list/i/0/s/1?${params.toString()}`
   );
   return result?.data?.[0] || null;
 }
