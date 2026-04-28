@@ -460,7 +460,7 @@ If the Logiwa system is temporarily unavailable, falls back to cached gateway st
 GET /v1/orders/{orderId}/tracking
 ```
 
-Retrieve tracking details for a shipped order.
+Retrieve tracking details for a shipped order. You can pass any of: the gateway `orderId` returned when the order was submitted, the `logiwaOrderId`, or your own `code` (external order id).
 
 ### Example Response
 

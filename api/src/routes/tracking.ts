@@ -20,8 +20,12 @@ export async function handleTracking(
 
   const orderId = match[1];
 
+  // Accept gateway UUID, Logiwa identifier, or the client's external_order_id —
+  // matches the lookup flexibility documented for GET /v1/orders/:id.
   const order = await env.DB.prepare(
-    `SELECT id, logiwa_order_id, status FROM orders WHERE id = ? AND tenant_id = ?`
+    `SELECT id, logiwa_order_id, status FROM orders
+     WHERE (id = ?1 OR logiwa_order_id = ?1 OR external_order_id = ?1)
+       AND tenant_id = ?2`
   )
     .bind(orderId, tenant.tenantId)
     .first();
