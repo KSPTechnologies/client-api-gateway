@@ -385,7 +385,7 @@ You do **not** need to set up webhooks — the gateway handles that. To check if
 ### Limits
 
 - Maximum **50 orders** per bulk request
-- Rate limited: 1 bulk request every 2-6 seconds depending on tier
+- Subject to the standard per-key rate limit (default 60 requests/minute)
 
 ---
 
@@ -996,29 +996,50 @@ Retrieve details for a purchase order using the `logiwaIdentifier` from the subm
 ## 13. Get Purchase Order Receipts
 
 ```
-GET /v1/purchase-orders/{code}/receipts?page=1&size=50
+GET /v1/purchase-orders/{code}/receipts
 ```
 
-Retrieve receiving history for a purchase order using the PO `code`.
+Retrieve line-level receiving status for a purchase order using the PO `code`. Returns per-SKU ordered vs. received totals plus the individual receipt events (with dates, quantities, and any damage).
 
 ### Example Response
 
 ```json
 {
   "purchaseOrderCode": "93024-HI",
-  "receipts": [
+  "purchaseOrderIdentifier": "f18d8f61-fb5d-45ec-b2ef-21e57b9ed0c1",
+  "status": "Pending",
+  "totalOrdered": 10,
+  "totalReceived": 6,
+  "totalShort": 4,
+  "totalDamaged": 0,
+  "isFullyReceived": false,
+  "lineItems": [
     {
-      "productSku": "881469",
-      "packQuantity": 1,
-      "receiptDate": "2026-03-25T10:30:00Z",
-      "warehouseLocationCode": "A-01-01",
-      "lotBatchNumber": null
+      "sku": "881469",
+      "name": "Pressure Gauge",
+      "orderedQuantity": 5,
+      "receivedQuantity": 5,
+      "shortQuantity": 0,
+      "packType": "Unit",
+      "isFullyReceived": true,
+      "lastReceivedDate": "2026-03-25T10:30:00Z",
+      "receiptEvents": [
+        {
+          "receiptDate": "2026-03-25T10:30:00Z",
+          "receivedQuantity": 5,
+          "packQuantity": 5,
+          "packType": "Unit",
+          "receiptDifference": 0,
+          "damagedQuantity": 0,
+          "warehouseCode": "A-01-01"
+        }
+      ]
     }
-  ],
-  "page": 0,
-  "size": 50
+  ]
 }
 ```
+
+Each `lineItems[]` entry summarizes one SKU on the PO; `receiptEvents[]` lists each physical receipt against it (newest first). Top-level totals roll up the whole PO.
 
 ---
 
