@@ -6,6 +6,7 @@ import { handleInventory } from './inventory';
 import { handlePurchaseOrders } from './purchase-orders';
 import { handleProducts } from './products';
 import { handleWebhooks } from './webhooks';
+import { handleZohoWebhook } from './zoho';
 import { logRequest } from '../lib/logger';
 import { checkRateLimit } from '../lib/rate-limit';
 import { ApiError, unauthorized, notFound, rateLimited, internal } from '../lib/errors';
@@ -29,6 +30,18 @@ export async function handleRequest(
   // Health check — no auth required
   if (path === '/v1/health') {
     return withCors(Response.json({ status: 'ok', timestamp: new Date().toISOString() }));
+  }
+
+  // Zoho connector webhook — authenticated (X-API-Key), translates Zoho -> order.
+  // Must precede the generic Logiwa webhook branch below.
+  if (path === '/v1/webhooks/zoho' || path === '/v1/webhooks/zoho/') {
+    const zohoTenant = await authenticateRequest(request, env);
+    if (!zohoTenant) {
+      return withCors(unauthorized().toResponse());
+    }
+    const zohoResponse = await handleZohoWebhook(request, env, zohoTenant);
+    ctx.waitUntil(logRequest(env, zohoTenant.tenantId, request, zohoResponse));
+    return withCors(zohoResponse);
   }
 
   // Webhooks from Logiwa — no API key auth required
