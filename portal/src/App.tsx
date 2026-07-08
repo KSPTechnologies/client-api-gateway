@@ -4,9 +4,10 @@ import Tenants from './pages/Tenants';
 import ApiKeys from './pages/ApiKeys';
 import Orders from './pages/Orders';
 import Errors from './pages/Errors';
+import Zoho from './pages/Zoho';
 import './App.css';
 
-type Page = 'dashboard' | 'tenants' | 'api-keys' | 'orders' | 'errors';
+type Page = 'dashboard' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho';
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -23,6 +24,7 @@ function App() {
           <li className={page === 'api-keys' ? 'active' : ''} onClick={() => setPage('api-keys')}>API Keys</li>
           <li className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>Orders</li>
           <li className={page === 'errors' ? 'active' : ''} onClick={() => setPage('errors')}>Errors</li>
+          <li className={page === 'zoho' ? 'active' : ''} onClick={() => setPage('zoho')}>Zoho</li>
         </ul>
       </nav>
       <main className="content">
@@ -31,6 +33,7 @@ function App() {
         {page === 'api-keys' && <ApiKeys />}
         {page === 'orders' && <Orders />}
         {page === 'errors' && <Errors />}
+        {page === 'zoho' && <Zoho />}
       </main>
     </div>
   );
