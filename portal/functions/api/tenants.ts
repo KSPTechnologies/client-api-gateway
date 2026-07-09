@@ -16,7 +16,8 @@ const ENDPOINT_TYPES = [
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   const tenants = await env.DB.prepare(
     `SELECT t.id, t.name, t.base_url, t.callback_url, t.active, t.logiwa_environment, t.logiwa_sandbox_client_id, t.logiwa_prod_client_id, t.created_at, t.updated_at,
-       (SELECT COUNT(*) FROM api_keys ak WHERE ak.tenant_id = t.id AND ak.active = 1) as active_keys
+       (SELECT COUNT(*) FROM api_keys ak WHERE ak.tenant_id = t.id AND ak.active = 1) as active_keys,
+       (SELECT sc.sftp_username FROM sftp_clients sc WHERE sc.tenant_id = t.id LIMIT 1) as sftp_username
      FROM tenants t ORDER BY t.created_at DESC`
   ).all();
 
@@ -48,6 +49,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     endpoints?: string[];
     logiwa_sandbox_client_id?: string;
     logiwa_prod_client_id?: string;
+    sftp_username?: string;
   };
 
   if (!body.name) {
@@ -74,6 +76,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .run();
   }
 
+  // Optionally link this client as an SFTP file-drop client (writes sftp_clients).
+  if (body.sftp_username && body.sftp_username.trim()) {
+    const u = body.sftp_username.trim();
+    await env.DB.prepare(
+      `INSERT INTO sftp_clients (sftp_username, tenant_id, environment, r2_prefix, enabled, created_at, updated_at)
+       VALUES (?, ?, 'sandbox', ?, 1, datetime('now'), datetime('now'))
+       ON CONFLICT(sftp_username) DO UPDATE SET tenant_id = excluded.tenant_id, r2_prefix = excluded.r2_prefix, updated_at = datetime('now')`
+    ).bind(u, id, `sftp/${u}/`).run();
+  }
+
   // Build generated endpoint list for response
   const generatedEndpoints = selectedEndpoints.map((epType) => {
     const def = ENDPOINT_TYPES.find((e) => e.type === epType);
@@ -93,6 +105,7 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     logiwa_prod_client_id?: string;
     active?: number;
     endpoints?: string[];
+    sftp_username?: string;
   };
 
   if (!body.id) {
@@ -127,6 +140,23 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
         `INSERT INTO tenant_endpoints (tenant_id, endpoint_type, enabled, created_at)
          VALUES (?, ?, 1, datetime('now'))`
       ).bind(body.id, epType).run();
+    }
+  }
+
+  // Sync the SFTP link (writes/removes sftp_clients) when provided.
+  if (body.sftp_username !== undefined) {
+    const u = (body.sftp_username || '').trim();
+    if (u) {
+      const t = await env.DB.prepare('SELECT logiwa_environment FROM tenants WHERE id = ?').bind(body.id).first();
+      const envv = t && t.logiwa_environment === 'production' ? 'production' : 'sandbox';
+      await env.DB.prepare(
+        `INSERT INTO sftp_clients (sftp_username, tenant_id, environment, r2_prefix, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+         ON CONFLICT(sftp_username) DO UPDATE SET tenant_id = excluded.tenant_id, environment = excluded.environment, r2_prefix = excluded.r2_prefix, updated_at = datetime('now')`
+      ).bind(u, body.id, envv, `sftp/${u}/`).run();
+    } else {
+      // Cleared → unlink any SFTP mapping for this client.
+      await env.DB.prepare('DELETE FROM sftp_clients WHERE tenant_id = ?').bind(body.id).run();
     }
   }
 

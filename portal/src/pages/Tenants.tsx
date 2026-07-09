@@ -14,6 +14,7 @@ interface Tenant {
   callback_url: string | null;
   active: number;
   active_keys: number;
+  sftp_username: string | null;
   logiwa_environment: 'sandbox' | 'production';
   logiwa_sandbox_client_id: string | null;
   logiwa_prod_client_id: string | null;
@@ -49,11 +50,12 @@ interface CreateForm {
   endpoints: string[];
   logiwa_sandbox_client_id: string;
   logiwa_prod_client_id: string;
+  sftp_username: string;
 }
 
 const emptyForm: CreateForm = {
   name: '', callback_url: '', endpoints: [],
-  logiwa_sandbox_client_id: '', logiwa_prod_client_id: '',
+  logiwa_sandbox_client_id: '', logiwa_prod_client_id: '', sftp_username: '',
 };
 
 export default function Tenants() {
@@ -68,7 +70,8 @@ export default function Tenants() {
     logiwa_sandbox_client_id: string;
     logiwa_prod_client_id: string;
     endpoints: string[];
-  }>({ callback_url: '', logiwa_sandbox_client_id: '', logiwa_prod_client_id: '', endpoints: [] });
+    sftp_username: string;
+  }>({ callback_url: '', logiwa_sandbox_client_id: '', logiwa_prod_client_id: '', endpoints: [], sftp_username: '' });
   const [sandboxClients, setSandboxClients] = useState<LogiwaClient[]>([]);
   const [prodClients, setProdClients] = useState<LogiwaClient[]>([]);
 
@@ -121,6 +124,7 @@ export default function Tenants() {
       logiwa_sandbox_client_id: t.logiwa_sandbox_client_id || '',
       logiwa_prod_client_id: t.logiwa_prod_client_id || '',
       endpoints: t.endpoints.filter((e) => e.enabled).map((e) => e.endpoint_type),
+      sftp_username: t.sftp_username || '',
     });
   };
 
@@ -228,6 +232,11 @@ export default function Tenants() {
                           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                             <strong>Logiwa Production:</strong> <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{t.logiwa_prod_client_id || 'Not set'}</span>
                           </div>
+                          {t.sftp_username && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                              <strong>SFTP client:</strong> <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{t.sftp_username} — sftp/{t.sftp_username}/ (in + out)</span>
+                            </div>
+                          )}
                           <button className="btn btn-primary btn-sm" style={{ marginTop: 12 }} onClick={(e) => { e.stopPropagation(); openEdit(t); }}>Edit Client</button>
                         </div>
                       </td>
@@ -282,6 +291,11 @@ export default function Tenants() {
             <div className="form-group">
               <label>Callback URL (optional — for tracking push notifications)</label>
               <input value={form.callback_url} onChange={(e) => setForm({ ...form, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+            </div>
+
+            <div className="form-group">
+              <label>SFTP file-drop username (optional — links this client to an SFTP in/out folder)</label>
+              <input value={form.sftp_username} onChange={(e) => setForm({ ...form, sftp_username: e.target.value })} placeholder="e.g. graytools" />
             </div>
 
             <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
@@ -365,6 +379,11 @@ export default function Tenants() {
             <div className="form-group">
               <label>Callback URL (optional)</label>
               <input value={editForm.callback_url} onChange={(e) => setEditForm({ ...editForm, callback_url: e.target.value })} placeholder="https://client.example.com/webhook" />
+            </div>
+
+            <div className="form-group">
+              <label>SFTP file-drop username (blank to unlink)</label>
+              <input value={editForm.sftp_username} onChange={(e) => setEditForm({ ...editForm, sftp_username: e.target.value })} placeholder="e.g. graytools" />
             </div>
 
             <div style={{ borderTop: '1px solid #eee', margin: '16px 0', paddingTop: 16 }}>
