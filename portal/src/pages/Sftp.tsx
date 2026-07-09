@@ -39,6 +39,7 @@ export default function Sftp() {
   const [newUser, setNewUser] = useState('');
   const [newTenant, setNewTenant] = useState('');
   const [newEnv, setNewEnv] = useState('sandbox');
+  const [newKey, setNewKey] = useState('');
   const [msg, setMsg] = useState('');
 
   // ── File activity ──
@@ -82,15 +83,16 @@ export default function Sftp() {
     fetch('/api/sftp-clients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sftp_username: newUser.trim(), tenant_id: newTenant, environment: newEnv }),
+      body: JSON.stringify({ sftp_username: newUser.trim(), tenant_id: newTenant, environment: newEnv, public_key: newKey.trim() }),
     })
       .then((r) => r.json())
       .then((d) => {
         if (d.error) setMsg(d.error);
         else {
-          setMsg(`Linked ${d.sftp_username} → ${d.r2_prefix} (${d.environment})`);
+          setMsg(`Linked ${d.sftp_username} → ${d.r2_prefix} (${d.environment}) — ${d.provisioned || ''}`);
           setNewUser('');
           setNewTenant('');
+          setNewKey('');
           loadClients();
         }
       });
@@ -149,6 +151,15 @@ export default function Sftp() {
         {msg && (
           <span style={{ fontSize: 12, color: msg.startsWith('Linked') ? '#2e7d32' : '#c62828' }}>{msg}</span>
         )}
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <textarea
+          placeholder="Client's SSH public key (optional — paste to auto-provision their SFTP account: ssh-ed25519 AAAA... )"
+          value={newKey}
+          onChange={(e) => setNewKey(e.target.value)}
+          rows={2}
+          style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: '6px 8px' }}
+        />
       </div>
 
       <div className="table-container">

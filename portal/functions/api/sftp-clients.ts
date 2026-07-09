@@ -1,4 +1,6 @@
-interface Env {
+import { provisionSftpUser, provisioningConfigured, ProvisionEnv } from './_sftpgo';
+
+interface Env extends ProvisionEnv {
   DB: D1Database;
 }
 
@@ -14,7 +16,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     `SELECT id, name, logiwa_sandbox_client_id, logiwa_prod_client_id
      FROM tenants WHERE active = 1 ORDER BY name`
   ).all();
-  return Response.json({ clients: clients.results, tenants: tenants.results });
+  return Response.json({
+    clients: clients.results,
+    tenants: tenants.results,
+    provisioning: provisioningConfigured(env),
+  });
 };
 
 // POST /api/sftp-clients — link (default), or { action: 'toggle' | 'unlink' }
@@ -25,6 +31,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     tenant_id?: string;
     environment?: 'sandbox' | 'production';
     enabled?: number;
+    public_key?: string;
   };
 
   const username = (body.sftp_username || '').trim();
@@ -51,7 +58,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   ).bind(body.tenant_id).first();
   if (!tenant) return Response.json({ error: 'Client not found' }, { status: 404 });
 
-  // Mirror the API-key rule: block linking to an env the tenant isn't set up for.
   const clientId = environment === 'production' ? tenant.logiwa_prod_client_id : tenant.logiwa_sandbox_client_id;
   if (!clientId) {
     return Response.json(
@@ -72,5 +78,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
        updated_at = datetime('now')`
   ).bind(username, body.tenant_id, environment, r2Prefix).run();
 
-  return Response.json({ ok: true, sftp_username: username, r2_prefix: r2Prefix, environment });
+  // Auto-provision the SFTPGo account if configured.
+  let provisioned: string | null = null;
+  if (provisioningConfigured(env)) {
+    try {
+      const r = await provisionSftpUser(env, username, (body.public_key || '').trim() || null);
+      provisioned = r.created ? 'SFTP account created' : 'SFTP account updated';
+    } catch (err) {
+      provisioned = `mapping saved, but SFTP provisioning failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  } else {
+    provisioned = 'mapping saved (SFTP account must be created manually — provisioning not configured)';
+  }
+
+  return Response.json({ ok: true, sftp_username: username, r2_prefix: r2Prefix, environment, provisioned });
 };
