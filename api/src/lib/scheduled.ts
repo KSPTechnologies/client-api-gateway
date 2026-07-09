@@ -1,5 +1,6 @@
 import { Env } from '../index';
 import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, logiwaFetch, LogiwaCredentials } from './logiwa';
+import { syncSftpInbound, syncSftpConfirmations } from './sftp';
 
 export async function handleScheduled(
   event: ScheduledEvent,
@@ -13,6 +14,13 @@ export async function handleScheduled(
 
     case '0 * * * *':
       await refreshInventoryCache(env);
+      break;
+
+    case '*/2 * * * *':
+      // SFTP connector — inbound file ingest + outbound confirmations.
+      // Isolated from syncTracking; each wrapped so one failing can't abort the other.
+      try { await syncSftpInbound(env); } catch (e) { console.error('[sftp] inbound run failed:', e); }
+      try { await syncSftpConfirmations(env); } catch (e) { console.error('[sftp] confirmations run failed:', e); }
       break;
 
     default:

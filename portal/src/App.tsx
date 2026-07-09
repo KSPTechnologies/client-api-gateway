@@ -5,9 +5,10 @@ import ApiKeys from './pages/ApiKeys';
 import Orders from './pages/Orders';
 import Errors from './pages/Errors';
 import Zoho from './pages/Zoho';
+import Sftp from './pages/Sftp';
 import './App.css';
 
-type Page = 'dashboard' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho';
+type Page = 'dashboard' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp';
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -25,6 +26,7 @@ function App() {
           <li className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>Orders</li>
           <li className={page === 'errors' ? 'active' : ''} onClick={() => setPage('errors')}>Errors</li>
           <li className={page === 'zoho' ? 'active' : ''} onClick={() => setPage('zoho')}>Zoho</li>
+          <li className={page === 'sftp' ? 'active' : ''} onClick={() => setPage('sftp')}>SFTP</li>
         </ul>
       </nav>
       <main className="content">
@@ -34,6 +36,7 @@ function App() {
         {page === 'orders' && <Orders />}
         {page === 'errors' && <Errors />}
         {page === 'zoho' && <Zoho />}
+        {page === 'sftp' && <Sftp />}
       </main>
     </div>
   );

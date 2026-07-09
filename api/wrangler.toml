@@ -24,6 +24,11 @@ id = "43692b54b0074c4692b279977e1a0aca"
 binding = "R2"
 bucket_name = "client-api-gateway-payloads"
 
+# R2 Bucket — SFTP file-drop landing zone (client-facing in/out folders)
+[[r2_buckets]]
+binding = "SFTP"
+bucket_name = "client-api-gateway-sftp"
+
 # Queue — uncomment when Queues is enabled on your Cloudflare plan
 # [[queues.producers]]
 # binding = "RETRY_QUEUE"
@@ -39,4 +44,5 @@ bucket_name = "client-api-gateway-payloads"
 crons = [
   "*/15 * * * *",
   "0 * * * *",
+  "*/2 * * * *",
 ]
