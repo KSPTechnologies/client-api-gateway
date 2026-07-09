@@ -80,10 +80,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   // Auto-provision the SFTPGo account if configured.
   let provisioned: string | null = null;
+  let sftpPassword: string | null = null;
   if (provisioningConfigured(env)) {
     try {
       const r = await provisionSftpUser(env, username, (body.public_key || '').trim() || null);
       provisioned = r.created ? 'SFTP account created' : 'SFTP account updated';
+      if (r.password) sftpPassword = r.password;
     } catch (err) {
       provisioned = `mapping saved, but SFTP provisioning failed: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -91,5 +93,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     provisioned = 'mapping saved (SFTP account must be created manually — provisioning not configured)';
   }
 
-  return Response.json({ ok: true, sftp_username: username, r2_prefix: r2Prefix, environment, provisioned });
+  return Response.json({
+    ok: true,
+    sftp_username: username,
+    r2_prefix: r2Prefix,
+    environment,
+    provisioned,
+    sftp_password: sftpPassword,
+    host: 'sftp.ksp3plhq.com',
+    port: 2022,
+  });
 };

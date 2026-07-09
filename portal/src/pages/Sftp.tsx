@@ -41,6 +41,7 @@ export default function Sftp() {
   const [newEnv, setNewEnv] = useState('sandbox');
   const [newKey, setNewKey] = useState('');
   const [msg, setMsg] = useState('');
+  const [reveal, setReveal] = useState<{ username: string; password: string; host: string; port: number } | null>(null);
 
   // ── File activity ──
   const [files, setFiles] = useState<SftpFile[]>([]);
@@ -90,6 +91,7 @@ export default function Sftp() {
         if (d.error) setMsg(d.error);
         else {
           setMsg(`Linked ${d.sftp_username} → ${d.r2_prefix} (${d.environment}) — ${d.provisioned || ''}`);
+          if (d.sftp_password) setReveal({ username: d.sftp_username, password: d.sftp_password, host: d.host, port: d.port });
           setNewUser('');
           setNewTenant('');
           setNewKey('');
@@ -161,6 +163,19 @@ export default function Sftp() {
           style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: '6px 8px' }}
         />
       </div>
+
+      {reveal && (
+        <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: 6, padding: '12px 14px', marginBottom: 16, fontSize: 13 }}>
+          <strong>SFTP credentials for {reveal.username}</strong> — copy now; the password is shown only once.
+          <div style={{ fontFamily: 'monospace', marginTop: 8, lineHeight: 1.7 }}>
+            Host: {reveal.host}<br />
+            Port: {reveal.port}<br />
+            Username: {reveal.username}<br />
+            Password: <strong>{reveal.password}</strong>
+          </div>
+          <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setReveal(null)}>Dismiss</button>
+        </div>
+      )}
 
       <div className="table-container">
         {clients.length === 0 ? (

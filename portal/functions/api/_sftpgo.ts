@@ -44,41 +44,62 @@ async function adminToken(env: ProvisionEnv): Promise<string> {
   return d.access_token;
 }
 
+// Generate a strong, unambiguous password (like the API-key reveal).
+function genPassword(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += chars[bytes[i] % chars.length];
+  return s;
+}
+
 // Create (or update) an SFTP user as a member of the r2clients group.
+// If a public key is supplied → key auth. Otherwise a password is generated and
+// returned once (the API-key model). Updates never silently reset credentials.
 export async function provisionSftpUser(
   env: ProvisionEnv,
   username: string,
   publicKey: string | null
-): Promise<{ created: boolean }> {
+): Promise<{ created: boolean; password?: string }> {
   const token = await adminToken(env);
   const authed = {
     ...accessHeaders(env),
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   };
-  const body = JSON.stringify({
-    username,
-    status: 1,
-    permissions: { '/': ['*'] },
-    public_keys: publicKey ? [publicKey] : [],
-    groups: [{ name: 'r2clients', type: 1 }],
-  });
 
   const existing = await fetch(`${env.SFTPGO_API_URL}/api/v2/users/${encodeURIComponent(username)}`, {
     headers: { ...accessHeaders(env), Authorization: `Bearer ${token}` },
   });
 
   if (existing.ok) {
+    const upd: Record<string, unknown> = {
+      username,
+      status: 1,
+      permissions: { '/': ['*'] },
+      groups: [{ name: 'r2clients', type: 1 }],
+    };
+    if (publicKey) upd.public_keys = [publicKey];
     const res = await fetch(`${env.SFTPGO_API_URL}/api/v2/users/${encodeURIComponent(username)}`, {
       method: 'PUT',
       headers: authed,
-      body,
+      body: JSON.stringify(upd),
     });
     if (!res.ok) throw new Error(`SFTPGo update failed (${res.status}): ${(await res.text()).slice(0, 160)}`);
     return { created: false };
   }
 
-  const res = await fetch(`${env.SFTPGO_API_URL}/api/v2/users`, { method: 'POST', headers: authed, body });
+  const password = publicKey ? undefined : genPassword();
+  const create: Record<string, unknown> = {
+    username,
+    status: 1,
+    permissions: { '/': ['*'] },
+    groups: [{ name: 'r2clients', type: 1 }],
+    public_keys: publicKey ? [publicKey] : [],
+  };
+  if (password) create.password = password;
+  const res = await fetch(`${env.SFTPGO_API_URL}/api/v2/users`, { method: 'POST', headers: authed, body: JSON.stringify(create) });
   if (!res.ok) throw new Error(`SFTPGo create failed (${res.status}): ${(await res.text()).slice(0, 160)}`);
-  return { created: true };
+  return { created: true, password };
 }
