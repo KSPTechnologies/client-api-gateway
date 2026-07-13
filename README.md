@@ -37,13 +37,16 @@ Everything is multi-tenant. Each client gets their own API keys, Logiwa client m
 │   │   ├── auth.ts               ← API key validation (SHA-256 hash → KV lookup)
 │   │   ├── routes/
 │   │   │   ├── router.ts         ← Request routing, auth gate, rate limiting, CORS, logging
-│   │   │   ├── orders.ts         ← POST /v1/orders, GET /v1/orders/:id
-│   │   │   ├── tracking.ts       ← GET /v1/orders/:id/tracking
-│   │   │   ├── inventory.ts      ← POST /v1/inventory/query
-│   │   │   └── purchase-orders.ts ← POST /v1/purchase-orders, GET receipts
+│   │   │   ├── orders.ts         ← GET/POST /v1/orders, POST /v1/orders/bulk, GET /v1/orders/:id
+│   │   │   ├── tracking.ts       ← GET /v1/orders/:id/tracking (accepts gateway, Logiwa, or external order id)
+│   │   │   ├── inventory.ts      ← GET /v1/inventory (list), POST /v1/inventory/query
+│   │   │   ├── purchase-orders.ts ← GET/POST /v1/purchase-orders, GET /v1/purchase-orders/:id[/receipts]
+│   │   │   ├── products.ts       ← GET /v1/products (list), POST /v1/products (create SKU)
+│   │   │   └── webhooks.ts       ← POST /v1/webhooks/* (inbound topics from Logiwa, e.g. bulk order)
 │   │   └── lib/
-│   │       ├── logiwa.ts         ← Logiwa IO API client (auth, orders, inventory, POs, webhooks)
+│   │       ├── logiwa.ts         ← Logiwa IO API client (auth, orders, inventory, POs, products, webhooks)
 │   │       ├── validate.ts       ← Zod schemas for request body validation
+│   │       ├── state-codes.ts    ← Normalizes full US state names → 2-letter codes before forwarding
 │   │       ├── errors.ts         ← Standardized API error responses
 │   │       ├── rate-limit.ts     ← Per-tenant sliding-window rate limiter via KV
 │   │       ├── logger.ts         ← Request + error logging to D1
@@ -77,9 +80,11 @@ Everything is multi-tenant. Each client gets their own API keys, Logiwa client m
 ├── db/
 │   └── migrations/
 │       ├── 0001_init.sql         ← Core schema
-│       └── 0002_tenant_endpoints.sql ← Endpoint config + base_url
+│       ├── 0002_tenant_endpoints.sql ← Endpoint config + base_url
+│       └── 0003_api_key_environment.sql ← Per-key sandbox/production column on api_keys
 ├── docs/
 │   ├── api-spec.md               ← Client-facing API documentation
+│   ├── client-integration-guide.md ← Onboarding/integration guide for client devs
 │   └── logiwa-api-spec.txt       ← Logiwa IO v3.1 OpenAPI spec (full reference)
 └── .gitignore
 ```
@@ -121,6 +126,23 @@ Logiwa creds are also stored in KV (for portal access to fetch live client lists
 - **Phase 4 (Async Work):** DONE — cron tracking sync, inventory cache refresh, retry queue consumer
 - **Phase 5 (Control Portal):** DONE — dashboard, client management, API keys, orders, errors, per-client env toggle, live Logiwa client dropdowns
 - **Phase 6 (Harden & Ship):** IN PROGRESS
+
+**Shipped since the original Phase 1–5 build (Mar 23 – Apr 28):**
+- List endpoints for orders, inventory, POs, and products — all tenant-scoped
+- Bulk order submission (`POST /v1/orders/bulk`, max 50)
+- Product endpoints (list + create SKU)
+- Inbound webhook receiver (subscribed to Logiwa bulk-order topic)
+- Per-**key** environment selection (sandbox/prod) on top of the per-tenant toggle (migration 0003)
+- US state-name → 2-letter-code normalization before forwarding to Logiwa
+- Native-Logiwa-schema passthrough for orders and POs; orders tagged `channelName = 'KSP API Gateway'`
+- PO receiving history upgraded to the Logiwa **v3.2** report (page size capped at 200)
+- Fixes: rate-limiter TTL (counter never expired), 1-based→0-based pagination, PO `currencyId` default USD(1)
+
+**⚠️ Known WIP at the tip of `master` (commits through Apr 28):** the tracking-sync cron
+(`api/src/lib/scheduled.ts`) still contains a `DIAGNOSTIC PROBE 2 (REVERT AFTER)` block and
+verbose `console.log` instrumentation from chasing a bug where sent orders were silently dropped
+by the Logiwa list endpoint. This probe/diagnostic code should be reverted once the sync is
+confirmed healthy.
 
 **End-to-end tested:** Order submitted through `connect.ksp3plhq.com` → authenticated → validated → forwarded to Logiwa sandbox → order created successfully in Logiwa.
 
@@ -175,13 +197,20 @@ All endpoints (except health) require `X-API-Key` header.
 | Method | Path | Description | Logiwa Endpoint |
 |--------|------|-------------|-----------------|
 | GET | `/v1/health` | Health check (no auth) | — |
+| GET | `/v1/orders` | List orders (tenant-scoped) | `GET /v3.1/ShipmentOrder/list` |
 | POST | `/v1/orders` | Submit customer order | `POST /v3.1/ShipmentOrder/create` |
+| POST | `/v1/orders/bulk` | Submit up to 50 orders at once | `POST /v3.1/ShipmentOrder/create/bulk` |
 | GET | `/v1/orders/:id` | Get order status | `GET /v3.1/ShipmentOrder/{id}` |
-| GET | `/v1/orders/:id/tracking` | Get tracking info | `GET /v3.1/ShipmentOrder/{id}` |
+| GET | `/v1/orders/:id/tracking` | Get tracking info (accepts gateway / Logiwa / external id) | `GET /v3.1/ShipmentOrder/{id}` |
+| GET | `/v1/inventory` | List inventory (tenant-scoped) | `GET /v3.1/Inventory/list` |
 | POST | `/v1/inventory/query` | Query inventory by SKUs | `GET /v3.1/Inventory/list` |
+| GET | `/v1/purchase-orders` | List purchase orders (tenant-scoped) | `GET /v3.1/PurchaseOrder/list` |
 | POST | `/v1/purchase-orders` | Submit purchase order | `POST /v3.1/PurchaseOrder/create` |
 | GET | `/v1/purchase-orders/:id` | Get PO details | `GET /v3.1/PurchaseOrder/{id}` |
-| GET | `/v1/purchase-orders/:id/receipts` | Get PO receiving history | `GET /v3.1/Report/PurchaseOrderReceivingHistory` |
+| GET | `/v1/purchase-orders/:id/receipts` | Get PO line-level receiving history | `GET /v3.2/Report/PurchaseOrderReceivingHistory` |
+| GET | `/v1/products` | List products (tenant-scoped) | `GET /v3.1/Product/list` |
+| POST | `/v1/products` | Create product / SKU | `POST /v3.1/Product/create` |
+| POST | `/v1/webhooks/*` | Inbound webhook receiver (Logiwa → gateway) | — (subscribed via Logiwa topics) |
 
 ### Example: Submit an Order
 
@@ -256,6 +285,11 @@ Each client also has separate Logiwa client identifier mappings for sandbox and 
 
 Clients don't know or care which environment is active — their API key works the same either way.
 
+**Per-key override:** as of migration `0003`, each individual API key also carries an
+`environment` column (`sandbox` default). This lets a single tenant hold both a sandbox key and a
+production key simultaneously. Key generation is blocked if the tenant has no Logiwa client ID
+mapped for the chosen environment.
+
 ## Portal Features
 
 - **Dashboard** — active client count, order stats by status, unresolved error count, recent API activity log
@@ -276,8 +310,15 @@ Push to `master` and both deploy automatically.
 
 ## What To Work On Next
 
+### Priority 0: Revert tracking-sync diagnostics
+`api/src/lib/scheduled.ts` still has the `DIAGNOSTIC PROBE 2 (REVERT AFTER)` block and verbose
+logging from the Apr 27–28 debugging of silently-dropped sent orders. Confirm the sync is healthy
+and strip the probe code before the next hardening pass.
+
 ### Priority 1: Endpoint Enforcement
-The `tenant_endpoints` table stores which endpoints each client has enabled, but the Worker router doesn't enforce it yet. Add a check so disabled endpoints return 403.
+The `tenant_endpoints` table stores which endpoints each client has enabled, but the Worker router
+**still doesn't enforce it** (verified against `router.ts` — no 403/endpoint check). Add a check so
+disabled endpoints return 403.
 
 ### Priority 2: Cloudflare Access
 Gate `connect-portal.ksp3plhq.com` behind Cloudflare Access (SSO/email domain) so only the team can access the portal.
@@ -296,5 +337,8 @@ Key columns on `tenants`:
 - `logiwa_environment` — `sandbox` or `production` (per-client toggle)
 - `logiwa_sandbox_client_id` — Logiwa client GUID for sandbox
 - `logiwa_prod_client_id` — Logiwa client GUID for production
+
+Key columns on `api_keys`:
+- `environment` — `sandbox` (default) or `production`, per-key override (migration `0003`)
 
 See `db/migrations/` for full schema.
