@@ -47,6 +47,7 @@ If you exceed the limit, you'll receive a `429 Too Many Requests` response with 
 | GET | `/v1/orders/{orderId}` | Get full order details |
 | GET | `/v1/orders/{orderId}/tracking` | Get tracking information |
 | GET | `/v1/inventory` | List all inventory (paginated, filterable) |
+| GET | `/v1/inventory/availability` | Available-to-promise (sellable) per SKU |
 | POST | `/v1/inventory/query` | Query inventory by specific SKU(s) |
 | GET | `/v1/products` | List products/SKUs (paginated, filterable) |
 | POST | `/v1/products` | Create a new product/SKU |
@@ -572,6 +573,67 @@ Check available inventory for one or more SKUs.
 ```
 
 A `null` quantity means the SKU was not found in inventory. Query up to 100 SKUs per request.
+
+---
+
+## Inventory Availability (Sellable / ATP)
+
+```
+GET /v1/inventory/availability?page=1&size=100
+```
+
+Returns per-SKU **available-to-promise** — the true *sellable* quantity after accounting for **all** order commitments (including backordered/unallocated demand), not just pickable stock. Use this to answer "what can I sell right now," versus `GET /v1/inventory` which shows physical stock by location. Results are scoped to your account.
+
+### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 0 | Page index (starts at 0) |
+| `size` | 100 | Results per page |
+
+### LQL Filtering
+
+```
+GET /v1/inventory/availability?Sku.eq=431
+GET /v1/inventory/availability?InventoryATPQuantity.gt=0
+```
+
+### Example Response
+
+```json
+{
+  "data": [
+    {
+      "productSku": "431",
+      "productName": "Widget 431",
+      "warehouseCode": "MAIN",
+      "onHandQuantity": 12,
+      "pickableQuantity": 12,
+      "totalOpenShipmentOrderItemQuantity": 4,
+      "totalUnallocatedShipmentOrderItemQuantity": 4,
+      "totalOpenPurchaseOrderItemQuantity": 0,
+      "inventoryATPQuantity": 8,
+      "sellableQuantity": 8,
+      "plannedATPQuantity": 8
+    }
+  ],
+  "totalCount": 1
+}
+```
+
+### Field Reference
+
+| Field | Meaning |
+|-------|---------|
+| `onHandQuantity` | Physical units in the warehouse |
+| `pickableQuantity` | On-hand units currently in a pickable state |
+| `totalOpenShipmentOrderItemQuantity` | Units committed to open orders |
+| `totalUnallocatedShipmentOrderItemQuantity` | Committed demand not yet allocated (backorders) |
+| `totalOpenPurchaseOrderItemQuantity` | Units inbound on open purchase orders |
+| `inventoryATPQuantity` / `sellableQuantity` | **Sellable now** — on-hand minus all commitments (this is the number to promise against) |
+| `plannedATPQuantity` | Available-to-promise including inbound PO stock |
+
+**Use `sellableQuantity` / `inventoryATPQuantity` for availability decisions** — unlike a raw "free" quantity, it correctly reflects backordered/unallocated demand.
 
 ---
 

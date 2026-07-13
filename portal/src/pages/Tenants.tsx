@@ -36,6 +36,7 @@ const ENDPOINT_OPTIONS = [
   { type: 'tracking', label: 'Get Tracking', method: 'GET', path: '/v1/orders/:id/tracking' },
   { type: 'inventory', label: 'Request Inventory', method: 'POST', path: '/v1/inventory/query' },
   { type: 'list_inventory', label: 'List All Inventory', method: 'GET', path: '/v1/inventory' },
+  { type: 'inventory_availability', label: 'Inventory Availability (ATP / sellable)', method: 'GET', path: '/v1/inventory/availability' },
   { type: 'list_products', label: 'List Products', method: 'GET', path: '/v1/products' },
   { type: 'create_product', label: 'Create Product (SKU)', method: 'POST', path: '/v1/products' },
   { type: 'create_po', label: 'Submit Purchase Orders', method: 'POST', path: '/v1/purchase-orders' },

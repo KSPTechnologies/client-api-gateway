@@ -45,6 +45,48 @@ export async function handleInventory(
   tenant: TenantContext,
   path: string
 ): Promise<Response> {
+  // GET /v1/inventory/availability — Available-To-Promise (sellable) report.
+  // Uses Logiwa's ATP report, which nets ALL order commitments (incl. unallocated
+  // backorders), unlike the pickable-only freeQuantity on the stock list below.
+  if (request.method === 'GET' && path === '/v1/inventory/availability') {
+    const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
+    const creds = getLogiwaCredentials(env, logiwaConfig.environment, logiwaConfig.clientIdentifier);
+
+    if (!creds) {
+      throw badRequest('Logiwa credentials not configured for this environment');
+    }
+
+    const url = new URL(request.url);
+    const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
+    const size = parseInt(url.searchParams.get('size') || '100');
+
+    const filters: Record<string, string> = {};
+    if (creds.clientIdentifier) {
+      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
+    }
+    for (const [key, value] of url.searchParams) {
+      if (key !== 'page' && key !== 'size') {
+        filters[key] = value;
+      }
+    }
+
+    try {
+      const filterParams = new URLSearchParams(filters);
+      const result = await logiwaFetchDirect(creds, 'GET', `/v3.1/Report/AvailableToPromise/i/${page}/s/${size}?${filterParams.toString()}`);
+      return Response.json(result);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Logiwa ATP report failed:', errMsg);
+
+      await env.DB.prepare(
+        `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
+         VALUES (?, '/v1/inventory/availability', 'GET', ?, 502, 0, 0, datetime('now'))`
+      ).bind(tenant.tenantId, errMsg).run();
+
+      return Response.json({ error: errMsg }, { status: 502 });
+    }
+  }
+
   // GET /v1/inventory — list all inventory (passthrough to Logiwa with tenant scoping)
   if (request.method === 'GET' && path === '/v1/inventory') {
     const logiwaConfig = await getTenantLogiwaConfig(env, tenant.tenantId, tenant.environment);
