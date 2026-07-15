@@ -227,10 +227,13 @@ export async function getShipmentOrderWithShipments(
   creds: LogiwaCredentials,
   identifier: string
 ): Promise<any> {
+  // Lookup by the globally-unique order identifier ONLY. Do not add a
+  // ClientIdentifier filter here: Logiwa stamps orders with a client id that
+  // can differ from the client-list id we store (verified: a Gray Tools order
+  // created with clientIdentifier 196c5ad5... came back stamped 807cbf5c...),
+  // so the filter silently excludes the tenant's own orders. All callers
+  // already tenant-scope via D1 before calling this.
   const filters: Record<string, string> = { 'Identifier.eq': identifier };
-  if (creds.clientIdentifier) {
-    filters['ClientIdentifier.eq'] = creds.clientIdentifier;
-  }
   const params = new URLSearchParams(filters);
   const result = await logiwaFetch(
     creds,
