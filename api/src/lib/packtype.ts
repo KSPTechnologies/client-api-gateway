@@ -20,8 +20,12 @@ export async function resolveMissingPackTypes(
   tenantId: string,
   order: Record<string, unknown>
 ): Promise<void> {
-  const lines = order?.shipmentOrderLineList;
-  if (!Array.isArray(lines)) return;
+  // Works for both shipment orders and purchase orders.
+  const lines = [
+    ...(Array.isArray(order?.shipmentOrderLineList) ? (order.shipmentOrderLineList as unknown[]) : []),
+    ...(Array.isArray(order?.purchaseOrderLineList) ? (order.purchaseOrderLineList as unknown[]) : []),
+  ];
+  if (lines.length === 0) return;
 
   for (const line of lines) {
     if (!line || typeof line !== 'object') continue;

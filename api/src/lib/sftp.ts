@@ -1,7 +1,10 @@
 import { Env } from '../index';
 import type { TenantContext } from '../auth';
 import { handleOrders } from '../routes/orders';
+import { handlePurchaseOrders } from '../routes/purchase-orders';
 import { handleTracking } from '../routes/tracking';
+import { getLogiwaCredentials, getTenantLogiwaConfig } from './logiwa';
+import { resolveMissingPackTypes } from './packtype';
 
 /**
  * SFTP file-drop connector (Gray Tools + future clients).
@@ -105,16 +108,36 @@ export async function syncSftpInbound(env: Env): Promise<void> {
         let firstOrderId: string | null = null;
         let errorMsg: string | null = null;
 
-        for (const order of orders) {
-          const req = new Request('https://internal/v1/orders', {
+        for (const doc of orders) {
+          // Content-based routing: a purchaseOrderLineList means it's a PO;
+          // a shipmentOrderLineList (or anything else) goes down the order path.
+          const isPO = !!doc && typeof doc === 'object' && Array.isArray((doc as any).purchaseOrderLineList);
+          const routePath = isPO ? '/v1/purchase-orders' : '/v1/orders';
+
+          if (isPO) {
+            // The order path resolves missing packTypes internally; do the same
+            // for PO lines here (PO lines otherwise require packType).
+            try {
+              const cfg = await getTenantLogiwaConfig(env, c.tenant_id, tenant.environment);
+              const creds = getLogiwaCredentials(env, cfg.environment, cfg.clientIdentifier);
+              if (creds) await resolveMissingPackTypes(env, creds, c.tenant_id, doc as Record<string, unknown>);
+            } catch (e) {
+              console.log('[sftp] PO packtype resolution skipped:', e instanceof Error ? e.message : e);
+            }
+          }
+
+          const req = new Request(`https://internal${routePath}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(order),
+            body: JSON.stringify(doc),
           });
-          const res = await handleOrders(req, env, tenant, '/v1/orders');
+          const res = isPO
+            ? await handlePurchaseOrders(req, env, tenant, routePath)
+            : await handleOrders(req, env, tenant, routePath);
           const r = (await res.json().catch(() => ({}))) as any;
-          if (!firstCode) firstCode = r.code ?? (order as any).code ?? null;
-          if (!firstOrderId) firstOrderId = r.orderId ?? null;
+          if (!firstCode) firstCode = r.code ?? (doc as any).code ?? null;
+          // POs aren't rows in the orders table — leave gateway_order_id null for them.
+          if (!firstOrderId && !isPO) firstOrderId = r.orderId ?? null;
           if (r.status === 'error' || !res.ok) errorMsg = r.message ?? `submit failed (${res.status})`;
         }
 
@@ -185,11 +208,21 @@ export async function syncSftpConfirmations(env: Env): Promise<void> {
       const path = `/v1/orders/${row.gateway_order_id}/tracking`;
       const req = new Request(`https://internal${path}`, { method: 'GET' });
       const res = await handleTracking(req, env, tenant, path);
-      const tracking = await res.json().catch(() => ({}));
+      const tracking = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+
+      // Self-describing confirmation: the client can match it to their order
+      // without parsing the filename.
+      const confirmation = {
+        confirmationType: 'shipment',
+        orderCode: row.order_code,
+        gatewayOrderId: row.gateway_order_id,
+        generatedAt: new Date().toISOString(),
+        ...tracking,
+      };
 
       const outName = `${row.order_code || row.gateway_order_id}-confirmation.json`;
       const outKey = `${row.r2_prefix}out/${outName}`;
-      await env.SFTP.put(outKey, JSON.stringify(tracking, null, 2));
+      await env.SFTP.put(outKey, JSON.stringify(confirmation, null, 2));
 
       await env.DB.prepare(
         `UPDATE sftp_files SET status='confirmed', confirmation_key=?, last_error=NULL, updated_at=datetime('now') WHERE id=?`
