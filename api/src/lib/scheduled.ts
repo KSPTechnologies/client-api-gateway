@@ -2,6 +2,31 @@ import { Env } from '../index';
 import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, logiwaFetch, LogiwaCredentials } from './logiwa';
 import { syncSftpInbound, syncSftpConfirmations } from './sftp';
 
+// Heartbeat wrapper: records each cron's last run + outcome in cron_runs so the
+// portal can show whether jobs are alive. Errors are recorded (better visibility
+// than an opaque runtime log) and not rethrown.
+async function recordRun(env: Env, cron: string, fn: () => Promise<void>): Promise<void> {
+  let status = 'ok';
+  let detail: string | null = null;
+  try {
+    await fn();
+  } catch (err) {
+    status = 'error';
+    detail = err instanceof Error ? err.message : String(err);
+    console.error(`[cron:${cron}] failed:`, detail);
+  } finally {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO cron_runs (cron, last_run_at, last_status, detail)
+         VALUES (?, datetime('now'), ?, ?)
+         ON CONFLICT(cron) DO UPDATE SET last_run_at = datetime('now'), last_status = excluded.last_status, detail = excluded.detail`
+      ).bind(cron, status, detail).run();
+    } catch (hbErr) {
+      console.error(`[cron:${cron}] heartbeat write failed:`, hbErr);
+    }
+  }
+}
+
 export async function handleScheduled(
   event: ScheduledEvent,
   env: Env,
@@ -9,18 +34,23 @@ export async function handleScheduled(
 ): Promise<void> {
   switch (event.cron) {
     case '*/15 * * * *':
-      await syncTracking(env);
+      await recordRun(env, 'tracking-sync', () => syncTracking(env));
       break;
 
     case '0 * * * *':
-      await refreshInventoryCache(env);
+      await recordRun(env, 'inventory-refresh', () => refreshInventoryCache(env));
       break;
 
     case '*/2 * * * *':
       // SFTP connector — inbound file ingest + outbound confirmations.
-      // Isolated from syncTracking; each wrapped so one failing can't abort the other.
-      try { await syncSftpInbound(env); } catch (e) { console.error('[sftp] inbound run failed:', e); }
-      try { await syncSftpConfirmations(env); } catch (e) { console.error('[sftp] confirmations run failed:', e); }
+      // Each half isolated so one failing can't abort the other; failures roll
+      // up into the heartbeat detail.
+      await recordRun(env, 'sftp-connector', async () => {
+        const errs: string[] = [];
+        try { await syncSftpInbound(env); } catch (e) { errs.push(`inbound: ${e instanceof Error ? e.message : e}`); }
+        try { await syncSftpConfirmations(env); } catch (e) { errs.push(`confirmations: ${e instanceof Error ? e.message : e}`); }
+        if (errs.length) throw new Error(errs.join(' | '));
+      });
       break;
 
     default:

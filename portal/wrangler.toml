@@ -10,3 +10,8 @@ database_id = "625fe274-4768-40f1-8083-2bc201eeb3fd"
 [[kv_namespaces]]
 binding = "KV"
 id = "43692b54b0074c4692b279977e1a0aca"
+
+# Read-only access to raw order payloads for the order-detail view
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "client-api-gateway-payloads"

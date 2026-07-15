@@ -60,19 +60,37 @@ export async function syncSftpInbound(env: Env): Promise<void> {
       if (!name || name.endsWith('/')) continue; // folder marker
       if (!name.toLowerCase().endsWith('.json')) continue; // only order files
 
-      // Idempotency — already ingested this object?
-      const existing = await env.DB.prepare('SELECT id FROM sftp_files WHERE r2_key = ?').bind(key).first();
-      if (existing) continue;
-
-      const fileId = crypto.randomUUID();
-      await env.DB.prepare(
-        `INSERT INTO sftp_files (id, sftp_username, tenant_id, r2_key, file_name, status, created_at, updated_at)
+      // Atomic claim — INSERT OR IGNORE on the unique r2_key. If another
+      // (possibly overlapping) cron run already claimed this object, changes=0
+      // and we skip it, eliminating the double-processing races.
+      let fileId = crypto.randomUUID();
+      const claim = await env.DB.prepare(
+        `INSERT OR IGNORE INTO sftp_files (id, sftp_username, tenant_id, r2_key, file_name, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'received', datetime('now'), datetime('now'))`
       ).bind(fileId, c.sftp_username, c.tenant_id, key, name).run();
 
+      if (!claim.meta || claim.meta.changes === 0) {
+        // Someone else holds the claim. Only take over if it's a stale
+        // 'received' claim (a run that died mid-flight >10 min ago).
+        const row = (await env.DB.prepare(
+          `SELECT id, status, updated_at FROM sftp_files WHERE r2_key = ?`
+        ).bind(key).first()) as any;
+        if (!row || row.status !== 'received') continue;
+        const ageMs = Date.now() - Date.parse(`${row.updated_at}Z`);
+        if (isNaN(ageMs) || ageMs < 10 * 60 * 1000) continue;
+        fileId = row.id;
+        await env.DB.prepare(
+          `UPDATE sftp_files SET updated_at = datetime('now') WHERE id = ?`
+        ).bind(fileId).run();
+      }
+
       try {
         const body = await env.SFTP.get(key);
-        if (!body) throw new Error('object vanished before read');
+        if (!body) {
+          // Object gone (moved by a prior run) — release nothing, just skip;
+          // the row that moved it already records the outcome.
+          continue;
+        }
         const text = await body.text();
         const parsed = JSON.parse(text);
         const orders = Array.isArray(parsed) ? parsed : [parsed];

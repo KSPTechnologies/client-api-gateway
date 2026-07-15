@@ -4,6 +4,7 @@ import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
 import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, getShipmentOrder, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
 import { normalizeStatesInPayload } from '../lib/state-codes';
+import { resolveMissingPackTypes } from '../lib/packtype';
 
 async function logiwaFetchDirect(
   creds: LogiwaCredentials,
@@ -127,6 +128,10 @@ export async function handleOrders(
     let errorDetail: string | null = null;
 
     if (creds) {
+      // Lines that omit packType get the product's default (cached Logiwa lookup).
+      // No-op for lines that already specify one.
+      await resolveMissingPackTypes(env, creds, tenant.tenantId, body);
+
       // Build payload: client's body + our injected fields
       const payload = {
         ...body,
@@ -218,6 +223,11 @@ export async function handleOrders(
     const bulkId = crypto.randomUUID();
     const r2Key = `orders/${tenant.tenantId}/bulk-${bulkId}/request.json`;
     await env.R2.put(r2Key, JSON.stringify(orders));
+
+    // Lines that omit packType get the product's default (cached Logiwa lookup).
+    for (const order of orders) {
+      await resolveMissingPackTypes(env, creds, tenant.tenantId, order);
+    }
 
     // Inject gateway fields into each order
     const payload = orders.map((order) => ({
