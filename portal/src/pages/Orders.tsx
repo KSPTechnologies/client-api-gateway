@@ -216,10 +216,10 @@ export default function Orders() {
                                   <p style={{ fontSize: 12, color: '#999' }}>Raw payloads unavailable (R2 binding not active yet).</p>
                                 )}
                                 {showPayload[o.id + ':req'] && d.requestPayload && (
-                                  <pre style={{ background: '#1a1a2e', color: '#a0e0a0', padding: 12, borderRadius: 6, fontSize: 11, overflowX: 'auto', marginTop: 8 }}>{d.requestPayload}</pre>
+                                  <pre style={{ background: '#1a1a2e', color: '#a0e0a0', padding: 12, borderRadius: 6, fontSize: 11, marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 420, overflow: 'auto', maxWidth: '100%' }}>{d.requestPayload}</pre>
                                 )}
                                 {showPayload[o.id + ':res'] && d.responsePayload && (
-                                  <pre style={{ background: '#1a1a2e', color: '#a0c0e0', padding: 12, borderRadius: 6, fontSize: 11, overflowX: 'auto', marginTop: 8 }}>{d.responsePayload}</pre>
+                                  <pre style={{ background: '#1a1a2e', color: '#a0c0e0', padding: 12, borderRadius: 6, fontSize: 11, marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 420, overflow: 'auto', maxWidth: '100%' }}>{d.responsePayload}</pre>
                                 )}
                               </div>
                             );

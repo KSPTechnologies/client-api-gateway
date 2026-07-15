@@ -9,7 +9,12 @@ async function readPayload(env: Env, key: string | null): Promise<string | null>
     const obj = await env.R2.get(key);
     if (!obj) return null;
     const text = await obj.text();
-    return text.length > 6000 ? text.slice(0, 6000) + '\n… (truncated)' : text;
+    // Beautify JSON payloads so the portal shows a readable block, not one long line.
+    let pretty = text;
+    try {
+      pretty = JSON.stringify(JSON.parse(text), null, 2);
+    } catch { /* not JSON — show raw */ }
+    return pretty.length > 12000 ? pretty.slice(0, 12000) + '\n… (truncated)' : pretty;
   } catch {
     return null;
   }
