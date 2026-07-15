@@ -70,17 +70,22 @@ export async function syncSftpInbound(env: Env): Promise<void> {
       ).bind(fileId, c.sftp_username, c.tenant_id, key, name).run();
 
       if (!claim.meta || claim.meta.changes === 0) {
-        // Someone else holds the claim. Only take over if it's a stale
-        // 'received' claim (a run that died mid-flight >10 min ago).
+        // A row already owns this in/ key. Two legitimate cases to take over:
+        //  - a stale 'received' claim (a run that died mid-flight >10 min ago)
+        //  - a terminal row (error/sent) whose key still points at in/ — that
+        //    means a failed move or a client RE-DROP of the same filename;
+        //    since the object is demonstrably present, reprocess it.
         const row = (await env.DB.prepare(
           `SELECT id, status, updated_at FROM sftp_files WHERE r2_key = ?`
         ).bind(key).first()) as any;
-        if (!row || row.status !== 'received') continue;
-        const ageMs = Date.now() - Date.parse(`${row.updated_at}Z`);
-        if (isNaN(ageMs) || ageMs < 10 * 60 * 1000) continue;
+        if (!row) continue;
+        if (row.status === 'received') {
+          const ageMs = Date.now() - Date.parse(`${row.updated_at}Z`);
+          if (isNaN(ageMs) || ageMs < 10 * 60 * 1000) continue; // active claim
+        }
         fileId = row.id;
         await env.DB.prepare(
-          `UPDATE sftp_files SET updated_at = datetime('now') WHERE id = ?`
+          `UPDATE sftp_files SET status='received', last_error=NULL, updated_at=datetime('now') WHERE id = ?`
         ).bind(fileId).run();
       }
 
@@ -113,8 +118,11 @@ export async function syncSftpInbound(env: Env): Promise<void> {
           if (r.status === 'error' || !res.ok) errorMsg = r.message ?? `submit failed (${res.status})`;
         }
 
-        // Move out of in/ so it isn't reprocessed.
-        const dest = `${c.r2_prefix}${errorMsg ? 'failed' : 'processed'}/${name}`;
+        // Move out of in/ so it isn't reprocessed. Archive name is timestamped
+        // so re-drops of the same filename never collide (in R2 or on the
+        // unique r2_key column), and every attempt is preserved.
+        const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
+        const dest = `${c.r2_prefix}${errorMsg ? 'failed' : 'processed'}/${stamp}_${name}`;
         await env.SFTP.put(dest, text);
         await env.SFTP.delete(key);
 
@@ -124,18 +132,29 @@ export async function syncSftpInbound(env: Env): Promise<void> {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[sftp] processing ${key} failed:`, msg);
+        let movedTo: string | null = null;
         try {
           const b = await env.SFTP.get(key);
           if (b) {
-            await env.SFTP.put(`${c.r2_prefix}failed/${name}`, await b.text());
+            const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
+            movedTo = `${c.r2_prefix}failed/${stamp}_${name}`;
+            await env.SFTP.put(movedTo, await b.text());
             await env.SFTP.delete(key);
           }
         } catch {
-          /* leave in place for retry next run */
+          movedTo = null; /* leave in place for retry next run */
         }
-        await env.DB.prepare(
-          `UPDATE sftp_files SET status='error', last_error=?, updated_at=datetime('now') WHERE id=?`
-        ).bind(msg, fileId).run();
+        // Record the failure — and the new key if the move happened, so the
+        // in/ key is freed for future re-drops.
+        if (movedTo) {
+          await env.DB.prepare(
+            `UPDATE sftp_files SET status='error', last_error=?, r2_key=?, updated_at=datetime('now') WHERE id=?`
+          ).bind(msg, movedTo, fileId).run();
+        } else {
+          await env.DB.prepare(
+            `UPDATE sftp_files SET status='error', last_error=?, updated_at=datetime('now') WHERE id=?`
+          ).bind(msg, fileId).run();
+        }
       }
     }
   }
