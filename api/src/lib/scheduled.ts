@@ -65,7 +65,7 @@ async function getCredsForTenant(env: Env, tenantId: string): Promise<LogiwaCred
 
 async function syncTracking(env: Env): Promise<void> {
   const { results: orders } = await env.DB.prepare(
-    `SELECT o.id, o.tenant_id, o.logiwa_order_id, o.external_order_id, t.callback_url
+    `SELECT o.id, o.tenant_id, o.logiwa_order_id, o.external_order_id, o.environment, t.callback_url
      FROM orders o
      JOIN tenants t ON t.id = o.tenant_id
      WHERE o.status = 'sent' AND o.logiwa_order_id IS NOT NULL
@@ -91,43 +91,57 @@ async function syncTracking(env: Env): Promise<void> {
 
   console.log(`[syncTracking] grouped into ${byTenant.size} tenants: ${[...byTenant.keys()].join(',')}`);
   for (const [tenantId, tenantOrders] of byTenant) {
-    const config = await getTenantLogiwaConfig(env, tenantId);
-    const creds = getLogiwaCredentials(env, config.environment, config.clientIdentifier);
-    console.log(`[syncTracking] tenant=${tenantId} env=${config.environment} clientId=${config.clientIdentifier ?? 'NONE'} credsOk=${!!creds} orders=${tenantOrders.length}`);
-    if (!creds) continue;
+    // Resolve credentials for BOTH environments up front. Orders are created
+    // with the API key's environment, which can differ from the tenant default
+    // (this mismatch is what left thousands of orders stuck at 'sent').
+    const cfgSandbox = await getTenantLogiwaConfig(env, tenantId, 'sandbox');
+    const cfgProd = await getTenantLogiwaConfig(env, tenantId, 'production');
+    const credsByEnv: Record<string, LogiwaCredentials | null> = {
+      sandbox: getLogiwaCredentials(env, 'sandbox', cfgSandbox.clientIdentifier),
+      production: getLogiwaCredentials(env, 'production', cfgProd.clientIdentifier),
+    };
+    const tenantDefault = (await getTenantLogiwaConfig(env, tenantId)).environment;
+    console.log(`[syncTracking] tenant=${tenantId} default=${tenantDefault} orders=${tenantOrders.length}`);
 
-    let probedOnce = false;
+    // Adaptive hint: once we discover where this tenant's unknown-env orders
+    // live, try that environment first for the rest of the run.
+    let envHint: 'sandbox' | 'production' | null = null;
+
     for (const order of tenantOrders) {
       try {
-        // ── DIAGNOSTIC PROBE 2 (REVERT AFTER) ──
-        if (!probedOnce) {
-          probedOnce = true;
-          const cid = creds.clientIdentifier ?? '';
-          // Probe a known-recent order (created today via API, definitely sent to Logiwa successfully)
-          const recentLogiwaId = 'f4a25613-c06d-4562-9d94-e66de30344a2';
-          try {
-            const r1 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/1?Identifier.eq=${recentLogiwaId}&ClientIdentifier.eq=${cid}`);
-            console.log(`[probe2] recent order ${recentLogiwaId}: totalCount=${r1?.totalCount} dataLen=${r1?.data?.length ?? 0} firstStatus=${r1?.data?.[0]?.shipmentOrderStatusName}`);
-          } catch (e) { console.log(`[probe2] recent threw: ${e instanceof Error ? e.message : e}`); }
-          // List all orders with newest first to see what's actually in Logiwa
-          try {
-            const r2 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/10?ClientIdentifier.eq=${cid}`);
-            const ids = r2?.data?.map((d: any) => `${d.identifier}=${d.shipmentOrderStatusName}`).join(' | ') ?? 'none';
-            console.log(`[probe2] all-for-client total=${r2?.totalCount} returned=${r2?.data?.length ?? 0}: ${ids}`);
-          } catch (e) { console.log(`[probe2] all-for-client threw: ${e instanceof Error ? e.message : e}`); }
-          // Try without ClientIdentifier — see if any auth-visible orders exist at all
-          try {
-            const r3 = await logiwaFetch(creds, 'GET', `/v3.1/ShipmentOrder/list/i/0/s/3`);
-            console.log(`[probe2] no-filter total=${r3?.totalCount} returned=${r3?.data?.length ?? 0} firstClient=${r3?.data?.[0]?.clientIdentifier}`);
-          } catch (e) { console.log(`[probe2] no-filter threw: ${e instanceof Error ? e.message : e}`); }
+        const known = order.environment === 'production' || order.environment === 'sandbox'
+          ? (order.environment as 'sandbox' | 'production')
+          : null;
+        const first = known ?? envHint ?? tenantDefault;
+        const tryEnvs: ('sandbox' | 'production')[] = known
+          ? [known]
+          : first === 'production' ? ['production', 'sandbox'] : ['sandbox', 'production'];
+
+        let logiwaOrder: any = null;
+        let foundEnv: 'sandbox' | 'production' | null = null;
+        let creds: LogiwaCredentials | null = null;
+        for (const e of tryEnvs) {
+          const c = credsByEnv[e];
+          if (!c) continue;
+          logiwaOrder = await getShipmentOrderWithShipments(c, order.logiwa_order_id as string);
+          if (logiwaOrder) { foundEnv = e; creds = c; break; }
         }
-        const logiwaOrder = await getShipmentOrderWithShipments(creds, order.logiwa_order_id as string);
+
         if (!logiwaOrder) {
           unchangedCount++;
           await env.DB.prepare(
             `UPDATE orders SET updated_at = datetime('now') WHERE id = ?`
           ).bind(order.id).run();
           continue;
+        }
+
+        // Back-fill the discovered environment so this order (and, via the
+        // hint, this tenant's queue) never needs the double lookup again.
+        if (!known && foundEnv) {
+          envHint = foundEnv;
+          await env.DB.prepare(
+            `UPDATE orders SET environment = ? WHERE id = ?`
+          ).bind(foundEnv, order.id).run();
         }
 
         const logiwaStatus = logiwaOrder.shipmentOrderStatusName?.toLowerCase();

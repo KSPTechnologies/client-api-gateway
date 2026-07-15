@@ -111,12 +111,13 @@ export async function handleOrders(
     const r2Key = `orders/${tenant.tenantId}/${orderId}/request.json`;
     await env.R2.put(r2Key, JSON.stringify(body));
 
-    // Insert order record in D1
+    // Insert order record in D1 (environment = the key/context env, so the
+    // tracking sync knows which Logiwa to check)
     await env.DB.prepare(
-      `INSERT INTO orders (id, tenant_id, external_order_id, status, request_payload_key, created_at, updated_at)
-       VALUES (?, ?, ?, 'received', ?, datetime('now'), datetime('now'))`
+      `INSERT INTO orders (id, tenant_id, external_order_id, status, request_payload_key, environment, created_at, updated_at)
+       VALUES (?, ?, ?, 'received', ?, ?, datetime('now'), datetime('now'))`
     )
-      .bind(orderId, tenant.tenantId, externalOrderId, r2Key)
+      .bind(orderId, tenant.tenantId, externalOrderId, r2Key, tenant.environment ?? null)
       .run();
 
     // Inject gateway fields — client sends everything else
@@ -257,10 +258,10 @@ export async function handleOrders(
         const orderStatus = results[i]?.bulkErrorType === 0 ? 'sent' : 'error';
 
         await env.DB.prepare(
-          `INSERT INTO orders (id, tenant_id, external_order_id, logiwa_order_id, status, request_payload_key, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO orders (id, tenant_id, external_order_id, logiwa_order_id, status, request_payload_key, environment, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
         )
-          .bind(orderId, tenant.tenantId, code, logiwaId, orderStatus, r2Key)
+          .bind(orderId, tenant.tenantId, code, logiwaId, orderStatus, r2Key, tenant.environment ?? null)
           .run();
       }
 
