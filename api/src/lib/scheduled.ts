@@ -34,7 +34,15 @@ export async function handleScheduled(
 ): Promise<void> {
   switch (event.cron) {
     case '*/15 * * * *':
-      await recordRun(env, 'tracking-sync', () => syncTracking(env));
+      await recordRun(env, 'tracking-sync', async () => {
+        // Cheap detector first: one list call per environment finds anything
+        // that shipped recently and nudges matching orders to the front of the
+        // queue, so the per-order flipper below confirms them THIS pass instead
+        // of hours from now (the standing 'sent' population makes the plain
+        // rotation take ~4-5h per full cycle).
+        try { await sweepRecentShipments(env); } catch (e) { console.error('[sweep] failed:', e); }
+        await syncTracking(env);
+      });
       break;
 
     case '0 * * * *':
@@ -61,6 +69,58 @@ export async function handleScheduled(
 async function getCredsForTenant(env: Env, tenantId: string): Promise<LogiwaCredentials | null> {
   const config = await getTenantLogiwaConfig(env, tenantId);
   return getLogiwaCredentials(env, config.environment, config.clientIdentifier);
+}
+
+// Detector: list recently-shipped orders in each Logiwa environment (1-3 calls
+// per env, no per-order lookups, no client filter — order-stamped client ids
+// are unreliable) and push any of OUR 'sent' orders that match to the front of
+// the recheck queue. The regular syncTracking pass then flips them with its
+// full logic (tracking, callbacks, confirmations) within the same run.
+async function sweepRecentShipments(env: Env): Promise<void> {
+  const d = (offsetDays: number) => {
+    const t = new Date(Date.now() + offsetDays * 86_400_000);
+    return t.toISOString().split('T')[0];
+  };
+  const range = `${d(-3)},${d(1)}`;
+
+  for (const environment of ['sandbox', 'production'] as const) {
+    const creds = getLogiwaCredentials(env, environment);
+    if (!creds) continue;
+
+    const shippedIds: string[] = [];
+    try {
+      for (let page = 0; page < 3; page++) {
+        const res = await logiwaFetch(
+          creds,
+          'GET',
+          `/v3.1/ShipmentOrder/list/i/${page}/s/200?ActualShipmentDate.bt=${range}`
+        );
+        const rows: any[] = res?.data || [];
+        for (const r of rows) {
+          if (r?.identifier) shippedIds.push(String(r.identifier).toLowerCase());
+        }
+        if (rows.length < 200) break;
+      }
+    } catch (e) {
+      console.error(`[sweep] ${environment} list failed:`, e instanceof Error ? e.message : e);
+      continue;
+    }
+    if (shippedIds.length === 0) continue;
+
+    // Nudge matches to the queue front in chunks (D1 param limit safety).
+    let nudged = 0;
+    for (let i = 0; i < shippedIds.length; i += 40) {
+      const chunk = shippedIds.slice(i, i + 40);
+      const placeholders = chunk.map(() => '?').join(',');
+      const r = await env.DB.prepare(
+        `UPDATE orders SET updated_at = '2000-01-01 00:00:00'
+         WHERE status = 'sent' AND lower(logiwa_order_id) IN (${placeholders})
+           AND updated_at != '2000-01-01 00:00:00'`
+      ).bind(...chunk).run();
+      nudged += r.meta?.changes ?? 0;
+    }
+    if (nudged > 0) console.log(`[sweep] ${environment}: ${shippedIds.length} recent shipments, nudged ${nudged} orders to front`);
+  }
 }
 
 async function syncTracking(env: Env): Promise<void> {
