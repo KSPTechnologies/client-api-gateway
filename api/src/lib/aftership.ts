@@ -22,6 +22,12 @@ interface AfterShipCreds {
   webhookSecret?: string;
 }
 
+// ISO 3166 alpha-2 -> alpha-3 for the countries we ship to (AfterShip wants alpha-3).
+const COUNTRY_A3: Record<string, string> = {
+  US: 'USA', USA: 'USA', CA: 'CAN', CAN: 'CAN', MX: 'MEX', MEX: 'MEX',
+  GB: 'GBR', GBR: 'GBR', AU: 'AUS', AUS: 'AUS', DE: 'DEU', FR: 'FRA', PR: 'PRI',
+};
+
 const SLUG_MAP: [RegExp, string][] = [
   [/usps/i, 'usps'],
   [/ups/i, 'ups'],
@@ -123,7 +129,9 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
           if (ship.city) payload.destination_city = ship.city;
           if (ship.state) payload.destination_state = ship.state;
           if (ship.postalCode) payload.destination_postal_code = ship.postalCode;
-          payload.destination_country_region = ship.country || 'US';
+          // AfterShip requires ISO 3166 alpha-3 ("USA"); orders carry alpha-2.
+          const a3 = COUNTRY_A3[String(ship.country || 'US').toUpperCase()];
+          if (a3) payload.destination_country_region = a3;
         }
         // Per-package details for THIS tracking number.
         const pieces = ((lo.shipmentInfo || []) as any[]).filter((i) => i?.trackingNumber === tn);
@@ -133,9 +141,8 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
         const wuRaw = String(pieces[0]?.licensePlateWeightUnitName || '').toLowerCase();
         const wu = wuRaw.startsWith('pound') ? 'lb' : wuRaw.startsWith('kilo') ? 'kg' : null;
         if (w != null && wu) payload.shipment_weight = { unit: wu, value: Number(w) };
-        if (lo.actualShipmentDate) {
-          payload.tracking_ship_date = String(lo.actualShipmentDate).slice(0, 10).replace(/-/g, '');
-        }
+        // (tracking_ship_date intentionally NOT sent — AfterShip rejects it and
+        // the courier populates ship dates from scans anyway.)
 
         const res = await fetch(AFTERSHIP_URL, {
           method: 'POST',
