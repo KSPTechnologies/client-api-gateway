@@ -1,6 +1,7 @@
 import { Env } from '../index';
 import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, logiwaFetch, LogiwaCredentials } from './logiwa';
 import { syncSftpInbound, syncSftpConfirmations } from './sftp';
+import { pushAfterShipTrackings } from './aftership';
 
 // Heartbeat wrapper: records each cron's last run + outcome in cron_runs so the
 // portal can show whether jobs are alive. Errors are recorded (better visibility
@@ -59,6 +60,8 @@ export async function handleScheduled(
         try { await syncSftpConfirmations(env); } catch (e) { errs.push(`confirmations: ${e instanceof Error ? e.message : e}`); }
         if (errs.length) throw new Error(errs.join(' | '));
       });
+      // AfterShip pushes for enabled tenants — separate heartbeat, isolated.
+      await recordRun(env, 'aftership-push', () => pushAfterShipTrackings(env));
       break;
 
     default:

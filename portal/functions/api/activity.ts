@@ -4,7 +4,7 @@ interface Env {
 
 // GET /api/activity — merged recent events across every channel + cron health.
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
-  const [requests, sftp, zoho, crons] = await Promise.all([
+  const [requests, sftp, zoho, crons, aftership] = await Promise.all([
     env.DB.prepare(
       `SELECT r.id, r.tenant_id, t.name as tenant_name, r.method, r.path, r.status_code, r.error_message, r.created_at
        FROM request_log r LEFT JOIN tenants t ON r.tenant_id = t.id
@@ -19,6 +19,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
        FROM zoho_sync ORDER BY updated_at DESC LIMIT 40`
     ).all(),
     env.DB.prepare(`SELECT cron, last_run_at, last_status, detail FROM cron_runs`).all(),
+    env.DB.prepare(
+      `SELECT p.id, p.tenant_id, t.name as tenant_name, p.tracking_number, p.status, p.last_error, p.created_at, p.updated_at,
+              o.external_order_id as order_code
+       FROM aftership_pushes p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN orders o ON o.id = p.order_id
+       ORDER BY p.updated_at DESC LIMIT 20`
+    ).all().catch(() => ({ results: [] as any[] })),
   ]);
 
   type Ev = {
@@ -57,6 +63,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
       status: z.inbound_status === 'error' ? 'error' : 'ok',
       error: z.last_error || null,
       orderId: z.gateway_order_id || null,
+    });
+  }
+
+  for (const a of (aftership.results || []) as any[]) {
+    events.push({
+      at: a.updated_at || a.created_at,
+      type: 'aftership',
+      who: a.tenant_name || a.tenant_id,
+      what: `tracking ${a.tracking_number}${a.order_code ? ` (order ${String(a.order_code).slice(0, 14)})` : ''} → ${a.status}`,
+      status: a.status === 'error' ? 'error' : 'ok',
+      error: a.last_error || null,
+      orderId: null,
     });
   }
 

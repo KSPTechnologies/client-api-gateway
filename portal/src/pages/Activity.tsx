@@ -21,6 +21,7 @@ interface CronRun {
 // Expected max gap (minutes) before a cron is considered stale.
 const CRON_EXPECTED: Record<string, number> = {
   'sftp-connector': 6,
+  'aftership-push': 6,
   'tracking-sync': 35,
   'inventory-refresh': 130,
 };
@@ -29,6 +30,7 @@ const TYPE_STYLE: Record<string, { bg: string; fg: string }> = {
   api: { bg: '#e3f2fd', fg: '#1565c0' },
   sftp: { bg: '#ede7f6', fg: '#5e35b1' },
   zoho: { bg: '#fff3e0', fg: '#e65100' },
+  aftership: { bg: '#e8f5e9', fg: '#2e7d32' },
 };
 
 function ageMinutes(utc: string | null): number | null {
@@ -74,7 +76,7 @@ export default function Activity() {
 
       {/* Cron health strip */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-        {['sftp-connector', 'tracking-sync', 'inventory-refresh'].map((name) => {
+        {['sftp-connector', 'aftership-push', 'tracking-sync', 'inventory-refresh'].map((name) => {
           const c = crons.find((x) => x.cron === name);
           const age = c ? ageMinutes(c.last_run_at) : null;
           const expected = CRON_EXPECTED[name] || 60;
@@ -101,6 +103,7 @@ export default function Activity() {
             <option value="api">API</option>
             <option value="sftp">SFTP</option>
             <option value="zoho">Zoho</option>
+            <option value="aftership">AfterShip</option>
           </select>
           <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
             <input type="checkbox" checked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} /> errors only
