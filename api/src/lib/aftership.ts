@@ -72,19 +72,22 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
         if (re.test(carrier)) { slug = s; break; }
       }
 
-      // custom_address from the stored order request payload (best effort).
-      let customAddress: string | null = null;
+      // Order metadata from the stored request payload (best effort).
+      let ship: any = null;
+      let orderDate: string | null = null;
+      let humanOrderNumber: string | null = null;
       try {
         const obj = row.request_payload_key ? await env.R2.get(row.request_payload_key as string) : null;
         if (obj) {
           const body = JSON.parse(await obj.text());
-          const a = body?.shipmentAddress;
-          if (a && a.addressLine1) {
-            customAddress = [a.addressLine1, a.city, a.state, a.postalCode, a.country || 'US']
-              .filter(Boolean).join(',');
-          }
+          ship = body?.shipmentAddress || null;
+          orderDate = body?.shipmentOrderDate || null;
+          humanOrderNumber = body?.channelOrderNumber || body?.clientReferenceCode || null;
         }
-      } catch { /* omit address rather than fail the push */ }
+      } catch { /* omit metadata rather than fail the push */ }
+      const customAddress = ship?.addressLine1
+        ? [ship.addressLine1, ship.city, ship.state, ship.postalCode, ship.country || 'US'].filter(Boolean).join(',')
+        : null;
 
       // Lot/batch numbers from the shipment packages.
       const lots = Array.from(new Set(
@@ -110,6 +113,29 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
           custom_fields: customFields,
         };
         if (slug) payload.slug = slug;
+
+        // ── Group A enrichment (operational fields, no PII) ──
+        payload.order_number = humanOrderNumber || row.external_order_id;
+        if (orderDate) {
+          payload.order_date = /^\d{4}-\d{2}-\d{2}$/.test(orderDate) ? `${orderDate}T00:00:00Z` : orderDate;
+        }
+        if (ship) {
+          if (ship.city) payload.destination_city = ship.city;
+          if (ship.state) payload.destination_state = ship.state;
+          if (ship.postalCode) payload.destination_postal_code = ship.postalCode;
+          payload.destination_country_region = ship.country || 'US';
+        }
+        // Per-package details for THIS tracking number.
+        const pieces = ((lo.shipmentInfo || []) as any[]).filter((i) => i?.trackingNumber === tn);
+        const shipMethod = pieces[0]?.shippingOptionName || (lo.shipmentInfo || [])[0]?.shippingOptionName;
+        if (shipMethod) payload.shipping_method = shipMethod;
+        const w = pieces[0]?.licensePlateWeight ?? pieces[0]?.licensePlateCalculatedWeight;
+        const wuRaw = String(pieces[0]?.licensePlateWeightUnitName || '').toLowerCase();
+        const wu = wuRaw.startsWith('pound') ? 'lb' : wuRaw.startsWith('kilo') ? 'kg' : null;
+        if (w != null && wu) payload.shipment_weight = { unit: wu, value: Number(w) };
+        if (lo.actualShipmentDate) {
+          payload.tracking_ship_date = String(lo.actualShipmentDate).slice(0, 10).replace(/-/g, '');
+        }
 
         const res = await fetch(AFTERSHIP_URL, {
           method: 'POST',
