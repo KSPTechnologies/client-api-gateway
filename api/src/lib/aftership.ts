@@ -118,19 +118,31 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
         });
         const bodyJson: any = await res.json().catch(() => ({}));
 
+        // Persist what we sent (secret masked — secrets never land in D1) and
+        // a compact view of what came back, for the portal drill-down.
+        const storedPayload = JSON.stringify({
+          ...payload,
+          custom_fields: { ...(customFields as Record<string, string>), ...(creds.webhookSecret ? { custom_webhook_secret: '••• (masked)' } : {}) },
+        });
+        const responseMeta = JSON.stringify({
+          httpStatus: res.status,
+          meta: bodyJson?.meta ?? null,
+          trackingId: bodyJson?.data?.id ?? bodyJson?.data?.tracking?.id ?? null,
+        }).slice(0, 2000);
+
         if (res.ok) {
           await env.DB.prepare(
-            `UPDATE aftership_pushes SET status='pushed', aftership_id=?, updated_at=datetime('now') WHERE id=?`
-          ).bind(bodyJson?.data?.id ?? bodyJson?.data?.tracking?.id ?? null, pushId).run();
+            `UPDATE aftership_pushes SET status='pushed', aftership_id=?, request_payload=?, response_meta=?, updated_at=datetime('now') WHERE id=?`
+          ).bind(bodyJson?.data?.id ?? bodyJson?.data?.tracking?.id ?? null, storedPayload, responseMeta, pushId).run();
         } else if (res.status === 409 || /already exist/i.test(String(bodyJson?.meta?.message || ''))) {
           // Duplicate = someone already created it (e.g. old WMS overlap) — treat as done.
           await env.DB.prepare(
-            `UPDATE aftership_pushes SET status='pushed', last_error='already existed in AfterShip', updated_at=datetime('now') WHERE id=?`
-          ).bind(pushId).run();
+            `UPDATE aftership_pushes SET status='pushed', last_error='already existed in AfterShip', request_payload=?, response_meta=?, updated_at=datetime('now') WHERE id=?`
+          ).bind(storedPayload, responseMeta, pushId).run();
         } else {
           await env.DB.prepare(
-            `UPDATE aftership_pushes SET status='error', last_error=?, updated_at=datetime('now') WHERE id=?`
-          ).bind(`HTTP ${res.status}: ${String(bodyJson?.meta?.message || '').slice(0, 180)}`, pushId).run();
+            `UPDATE aftership_pushes SET status='error', last_error=?, request_payload=?, response_meta=?, updated_at=datetime('now') WHERE id=?`
+          ).bind(`HTTP ${res.status}: ${String(bodyJson?.meta?.message || '').slice(0, 180)}`, storedPayload, responseMeta, pushId).run();
         }
         console.log(`[aftership] ${row.external_order_id} / ${tn} -> HTTP ${res.status}`);
       }

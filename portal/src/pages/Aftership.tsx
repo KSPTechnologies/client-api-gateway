@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { formatDate } from '../utils';
 
 interface Push {
@@ -10,6 +10,20 @@ interface Push {
   status: string;
   last_error: string | null;
   created_at: string;
+}
+
+interface Checkpoint { time: string | null; message: string; location: string | null; }
+
+interface PushDetail {
+  requestPayload: unknown;
+  responseMeta: unknown;
+  live: {
+    tag: string;
+    subtag_message: string | null;
+    expected_delivery: string | null;
+    courier_tracking_link: string | null;
+    checkpoints: Checkpoint[];
+  } | null;
 }
 
 interface Account {
@@ -28,6 +42,17 @@ export default function Aftership() {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('');
   const [auto, setAuto] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, PushDetail | 'loading'>>({});
+
+  const toggleExpand = (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    setDetails((m) => ({ ...m, [id]: 'loading' }));
+    fetch(`/api/aftership-detail?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((d) => setDetails((m) => ({ ...m, [id]: d as PushDetail })));
+  };
 
   const load = () => {
     const p = new URLSearchParams({ page: page.toString() });
@@ -111,17 +136,75 @@ export default function Aftership() {
             </thead>
             <tbody>
               {pushes.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.tenant_name || '—'}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{(p.order_code || '—').slice(0, 18)}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.tracking_number}</td>
-                  <td><span className={`badge ${p.status === 'pushed' ? 'fulfilled' : p.status}`}>{p.status}</span></td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.aftership_id ? p.aftership_id.slice(0, 12) + '…' : '—'}</td>
-                  <td style={{ fontSize: 12, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#c62828' }} title={p.last_error || ''}>
-                    {p.last_error || '—'}
-                  </td>
-                  <td>{formatDate(p.created_at)}</td>
-                </tr>
+                <Fragment key={p.id}>
+                  <tr onClick={() => toggleExpand(p.id)} style={{ cursor: 'pointer' }}>
+                    <td>{p.tenant_name || '—'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{(p.order_code || '—').slice(0, 18)}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.tracking_number}</td>
+                    <td><span className={`badge ${p.status === 'pushed' ? 'fulfilled' : p.status}`}>{p.status}</span></td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.aftership_id ? p.aftership_id.slice(0, 12) + '…' : '—'}</td>
+                    <td style={{ fontSize: 12, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#c62828' }} title={p.last_error || ''}>
+                      {p.last_error || '—'}
+                    </td>
+                    <td>{formatDate(p.created_at)}</td>
+                  </tr>
+                  {expandedId === p.id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: '#fafafa', padding: '16px 24px' }}>
+                        {details[p.id] === 'loading' || !details[p.id] ? (
+                          <p style={{ fontSize: 13 }}>Loading detail…</p>
+                        ) : (
+                          (() => {
+                            const d = details[p.id] as PushDetail;
+                            return (
+                              <div style={{ fontSize: 13 }}>
+                                {d.live ? (
+                                  <div style={{ marginBottom: 12 }}>
+                                    <strong>Live AfterShip status:</strong>{' '}
+                                    <span style={{ background: '#e8f5e9', color: '#2e7d32', padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>{d.live.tag}</span>
+                                    {d.live.subtag_message && <span style={{ color: '#666' }}> — {d.live.subtag_message}</span>}
+                                    {d.live.expected_delivery && <span style={{ color: '#666' }}> · ETA {d.live.expected_delivery}</span>}
+                                    {d.live.courier_tracking_link && (
+                                      <> · <a href={d.live.courier_tracking_link} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>carrier page ↗</a></>
+                                    )}
+                                    {d.live.checkpoints.length > 0 && (
+                                      <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                                        {d.live.checkpoints.map((c, i) => (
+                                          <li key={i} style={{ marginBottom: 2 }}>
+                                            <span style={{ color: '#888' }}>{c.time ? formatDate(c.time) : ''}</span>{' '}
+                                            {c.message}{c.location ? ` (${c.location})` : ''}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p style={{ fontSize: 12, color: '#999', marginTop: 0 }}>Live AfterShip status unavailable.</p>
+                                )}
+                                <strong>Payload we pushed</strong>
+                                {d.requestPayload ? (
+                                  <pre style={{ background: '#1a1a2e', color: '#a0e0a0', padding: 12, borderRadius: 6, fontSize: 11, marginTop: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 320, overflow: 'auto' }}>
+                                    {JSON.stringify(d.requestPayload, null, 2)}
+                                  </pre>
+                                ) : (
+                                  <p style={{ fontSize: 12, color: '#999' }}>Not recorded (pushes before 7/20 didn't store payloads).</p>
+                                )}
+                                {d.responseMeta != null && (
+                                  <>
+                                    <strong>AfterShip response</strong>
+                                    <pre style={{ background: '#1a1a2e', color: '#a0c0e0', padding: 12, borderRadius: 6, fontSize: 11, marginTop: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflow: 'auto' }}>
+                                      {JSON.stringify(d.responseMeta, null, 2)}
+                                    </pre>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
