@@ -7,9 +7,10 @@ import Orders from './pages/Orders';
 import Errors from './pages/Errors';
 import Zoho from './pages/Zoho';
 import Sftp from './pages/Sftp';
+import Aftership from './pages/Aftership';
 import './App.css';
 
-type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp';
+type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership';
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -29,6 +30,7 @@ function App() {
           <li className={page === 'errors' ? 'active' : ''} onClick={() => setPage('errors')}>Errors</li>
           <li className={page === 'zoho' ? 'active' : ''} onClick={() => setPage('zoho')}>Zoho</li>
           <li className={page === 'sftp' ? 'active' : ''} onClick={() => setPage('sftp')}>SFTP</li>
+          <li className={page === 'aftership' ? 'active' : ''} onClick={() => setPage('aftership')}>AfterShip</li>
         </ul>
       </nav>
       <main className="content">
@@ -40,6 +42,7 @@ function App() {
         {page === 'errors' && <Errors />}
         {page === 'zoho' && <Zoho />}
         {page === 'sftp' && <Sftp />}
+        {page === 'aftership' && <Aftership />}
       </main>
     </div>
   );
