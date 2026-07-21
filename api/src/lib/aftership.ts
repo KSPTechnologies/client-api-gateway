@@ -28,6 +28,11 @@ const COUNTRY_A3: Record<string, string> = {
   GB: 'GBR', GBR: 'GBR', AU: 'AUS', AUS: 'AUS', DE: 'DEU', FR: 'FRA', PR: 'PRI',
 };
 
+const COUNTRY_NAME: Record<string, string> = {
+  USA: 'United States', CAN: 'Canada', MEX: 'Mexico', GBR: 'United Kingdom',
+  AUS: 'Australia', DEU: 'Germany', FRA: 'France', PRI: 'Puerto Rico',
+};
+
 const SLUG_MAP: [RegExp, string][] = [
   [/usps/i, 'usps'],
   [/ups/i, 'ups'],
@@ -82,6 +87,8 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
       let ship: any = null;
       let orderDate: string | null = null;
       let humanOrderNumber: string | null = null;
+      let custEmail: string | null = null;
+      let custName: string | null = null;
       try {
         const obj = row.request_payload_key ? await env.R2.get(row.request_payload_key as string) : null;
         if (obj) {
@@ -89,6 +96,10 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
           ship = body?.shipmentAddress || null;
           orderDate = body?.shipmentOrderDate || null;
           humanOrderNumber = body?.channelOrderNumber || body?.clientReferenceCode || null;
+          custEmail = body?.customer?.email || body?.billingAddress?.email || null;
+          const fn = body?.customer?.firstName || '';
+          const ln = body?.customer?.lastName || '';
+          custName = `${fn} ${ln}`.trim() || null;
         }
       } catch { /* omit metadata rather than fail the push */ }
       const customAddress = ship?.addressLine1
@@ -132,11 +143,28 @@ export async function pushAfterShipTrackings(env: Env): Promise<void> {
           // AfterShip requires ISO 3166 alpha-3 ("USA"); orders carry alpha-2.
           const a3 = COUNTRY_A3[String(ship.country || 'US').toUpperCase()];
           if (a3) payload.destination_country_region = a3;
+          // Raw location string in the old WMS's format — feeds the UI's
+          // "Shipping address" row.
+          const countryName = a3 ? COUNTRY_NAME[a3] : null;
+          const rawParts = [ship.city, ship.state, ship.postalCode, a3, countryName].filter(Boolean);
+          if (rawParts.length >= 3) payload.destination_raw_location = rawParts.join(', ');
+        }
+        // Origin: KSP ships domestically — matches the old WMS's constant.
+        payload.origin_country_region = 'USA';
+        payload.origin_raw_location = 'United States';
+        // Customer (matches old WMS: recorded on the tracking, but NOT
+        // subscribed — AfterShip sends them no notifications).
+        if (custEmail || custName) {
+          payload.customers = [{ email: custEmail, name: custName }];
         }
         // Per-package details for THIS tracking number.
         const pieces = ((lo.shipmentInfo || []) as any[]).filter((i) => i?.trackingNumber === tn);
         const shipMethod = pieces[0]?.shippingOptionName || (lo.shipmentInfo || [])[0]?.shippingOptionName;
-        if (shipMethod) payload.shipping_method = shipMethod;
+        if (shipMethod) {
+          payload.shipping_method = shipMethod;
+          // Also shown as "Carrier service type" in the AfterShip UI.
+          payload.shipment_type = shipMethod;
+        }
         const w = pieces[0]?.licensePlateWeight ?? pieces[0]?.licensePlateCalculatedWeight;
         const wuRaw = String(pieces[0]?.licensePlateWeightUnitName || '').toLowerCase();
         const wu = wuRaw.startsWith('pound') ? 'lb' : wuRaw.startsWith('kilo') ? 'kg' : null;
