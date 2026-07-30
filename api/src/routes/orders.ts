@@ -5,6 +5,7 @@ import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, getShi
 import { ApiError } from '../lib/errors';
 import { normalizeStatesInPayload } from '../lib/state-codes';
 import { resolveMissingPackTypes } from '../lib/packtype';
+import { applyShippingOptionMapping } from '../lib/shipping-map';
 
 async function logiwaFetchDirect(
   creds: LogiwaCredentials,
@@ -129,6 +130,9 @@ export async function handleOrders(
     let errorDetail: string | null = null;
 
     if (creds) {
+      // Per-tenant shipping-option rewrite (no-op unless a mapping is configured).
+      await applyShippingOptionMapping(env, tenant.tenantId, body);
+
       // Lines that omit packType get the product's default (cached Logiwa lookup).
       // No-op for lines that already specify one.
       await resolveMissingPackTypes(env, creds, tenant.tenantId, body);
@@ -225,8 +229,10 @@ export async function handleOrders(
     const r2Key = `orders/${tenant.tenantId}/bulk-${bulkId}/request.json`;
     await env.R2.put(r2Key, JSON.stringify(orders));
 
-    // Lines that omit packType get the product's default (cached Logiwa lookup).
+    // Lines that omit packType get the product's default (cached Logiwa lookup);
+    // shipping-option mappings applied the same as single orders.
     for (const order of orders) {
+      await applyShippingOptionMapping(env, tenant.tenantId, order);
       await resolveMissingPackTypes(env, creds, tenant.tenantId, order);
     }
 
