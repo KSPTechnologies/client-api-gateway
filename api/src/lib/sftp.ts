@@ -210,6 +210,16 @@ export async function syncSftpConfirmations(env: Env): Promise<void> {
       const res = await handleTracking(req, env, tenant, path);
       const tracking = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
+      // Completeness guard: an ASN without package contents is worse than a
+      // late one (client importers reject it). If Logiwa doesn't yet show the
+      // order shipped WITH shipment/package data, skip and retry next pass.
+      const trkStatus = String((tracking as any)?.tracking?.logiwaStatus || '').toLowerCase();
+      const shipmentCount = ((tracking as any)?.shipments || []).length;
+      if (!(trkStatus === 'shipped' || trkStatus === 'delivered') || shipmentCount === 0) {
+        console.log(`[sftp] confirmation for ${row.order_code} deferred (status=${trkStatus||'?'}, shipments=${shipmentCount})`);
+        continue;
+      }
+
       // Self-describing confirmation: the client can match it to their order
       // without parsing the filename.
       const confirmation = {

@@ -211,7 +211,11 @@ async function syncTracking(env: Env): Promise<void> {
         const trackingNumbers = logiwaOrder.trackingNumbers || [];
 
         let newStatus: string | null = null;
-        if (logiwaStatus === 'shipped' || trackingNumbers.length > 0) {
+        // Fulfilled only on ACTUAL ship (status or ship-scan timestamp).
+        // A tracking number alone is NOT enough — labels print minutes before
+        // the ship scan, and confirmations written in that gap have no package
+        // data (Gray Tools ASN 0823190001 incident, 2026-07-30).
+        if (logiwaStatus === 'shipped' || !!logiwaOrder.actualShipmentDate) {
           newStatus = 'fulfilled';
         } else if (logiwaStatus === 'cancelled') {
           newStatus = 'closed';
