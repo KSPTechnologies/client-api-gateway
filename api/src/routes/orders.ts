@@ -6,6 +6,7 @@ import { ApiError } from '../lib/errors';
 import { normalizeStatesInPayload } from '../lib/state-codes';
 import { resolveMissingPackTypes } from '../lib/packtype';
 import { applyShippingOptionMapping } from '../lib/shipping-map';
+import { applyRetailerMapping } from '../lib/retailer-map';
 
 async function logiwaFetchDirect(
   creds: LogiwaCredentials,
@@ -133,6 +134,9 @@ export async function handleOrders(
       // Per-tenant shipping-option rewrite (no-op unless a mapping is configured).
       await applyShippingOptionMapping(env, tenant.tenantId, body);
 
+      // Per-tenant retailer number -> Logiwa retailer GUID (packing slips).
+      await applyRetailerMapping(env, tenant.tenantId, body);
+
       // Lines that omit packType get the product's default (cached Logiwa lookup).
       // No-op for lines that already specify one.
       await resolveMissingPackTypes(env, creds, tenant.tenantId, body);
@@ -233,6 +237,7 @@ export async function handleOrders(
     // shipping-option mappings applied the same as single orders.
     for (const order of orders) {
       await applyShippingOptionMapping(env, tenant.tenantId, order);
+      await applyRetailerMapping(env, tenant.tenantId, order);
       await resolveMissingPackTypes(env, creds, tenant.tenantId, order);
     }
 
