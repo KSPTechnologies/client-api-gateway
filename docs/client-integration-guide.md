@@ -220,6 +220,11 @@ The full schema is available. Only `code` and `shipmentOrderLineList` are requir
 | `shippingOptionDetails.carrierSetupName` | string | Carrier setup name (e.g. "UPS Standard") |
 | `shippingOptionDetails.isSetUnmatchedShippingOptionAsRequested` | boolean | If `true`, unmatched methods are recorded as requested |
 
+> **Per-account carrier mapping:** KSP can configure a translation table for your account so
+> the carrier setup names you already use (e.g. `"Cheapest"`) are automatically mapped to the
+> correct KSP rate-shop or carrier configuration. If your shipping method names don't match
+> KSP's, ask us to set up a mapping instead of changing your export.
+
 ### Return Shipping Details (nested object)
 
 | Field | Type | Description |
@@ -252,6 +257,12 @@ The full schema is available. Only `code` and `shipmentOrderLineList` are requir
 | `retailerDetails.dept` | string | Department |
 | `retailerDetails.markFor` | string | Mark for |
 | `retailerDetails.retailerCustomerAccountNumber` | string | Retailer customer account |
+
+> **`retailerIdentifier` must be a KSP retailer GUID.** If your system only has your own
+> retailer/customer numbers, KSP can configure a per-account mapping that translates them to
+> the correct GUID automatically (this is what drives retailer-specific packing slips).
+> Unmapped values are safely preserved in `retailerCustomerAccountNumber` rather than
+> rejecting the order.
 
 ### Complete Line Item Field Reference
 
