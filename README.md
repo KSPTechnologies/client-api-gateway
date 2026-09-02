@@ -4,6 +4,13 @@ Multi-tenant API gateway that sits between external clients and our Logiwa IO WM
 
 **API (client-facing):** `https://connect.ksp3plhq.com`
 **Portal (internal):** `https://connect-portal.ksp3plhq.com`
+**SFTP (client file-drops):** `sftp.ksp3plhq.com:2022` (SFTPGo on Linode, R2-backed)
+
+> **New to this repo? Read [`docs/developer-guide.md`](docs/developer-guide.md) first.**
+> It explains how the Worker, the portal (a *separate* Cloudflare Pages project with its
+> own Functions backend), and the SFTP server fit together — and the step-by-step recipe
+> for adding a new connector. ⚠️ This gateway carries **live production traffic**; all
+> changes are additive-only.
 
 ## Architecture
 
@@ -42,7 +49,8 @@ Everything is multi-tenant. Each client gets their own API keys, Logiwa client m
 │   │   │   ├── inventory.ts      ← GET /v1/inventory (list), POST /v1/inventory/query
 │   │   │   ├── purchase-orders.ts ← GET/POST /v1/purchase-orders, GET /v1/purchase-orders/:id[/receipts]
 │   │   │   ├── products.ts       ← GET /v1/products (list), POST /v1/products (create SKU)
-│   │   │   └── webhooks.ts       ← POST /v1/webhooks/* (inbound topics from Logiwa, e.g. bulk order)
+│   │   │   ├── webhooks.ts       ← POST /v1/webhooks/* (inbound topics from Logiwa, e.g. bulk order)
+│   │   │   └── zoho.ts           ← POST /v1/webhooks/zoho (Zoho CRM Sales Order → gateway order)
 │   │   └── lib/
 │   │       ├── logiwa.ts         ← Logiwa IO API client (auth, orders, inventory, POs, products, webhooks)
 │   │       ├── validate.ts       ← Zod schemas for request body validation
@@ -50,7 +58,12 @@ Everything is multi-tenant. Each client gets their own API keys, Logiwa client m
 │   │       ├── errors.ts         ← Standardized API error responses
 │   │       ├── rate-limit.ts     ← Per-tenant sliding-window rate limiter via KV
 │   │       ├── logger.ts         ← Request + error logging to D1
-│   │       ├── scheduled.ts      ← Cron: tracking sync (15min), inventory refresh (hourly)
+│   │       ├── scheduled.ts      ← Crons + heartbeats: tracking sync, recent-shipments sweep, inventory refresh
+│   │       ├── sftp.ts           ← SFTP connector: ingest in/ files (orders + POs), write out/ confirmations
+│   │       ├── aftership.ts      ← AfterShip tracking push for enabled tenants (2-min cron)
+│   │       ├── packtype.ts       ← Fills missing line packType from the product's Logiwa default (cached)
+│   │       ├── shipping-map.ts   ← Per-tenant carrier-setup-name rewrite (shipping_option_mappings)
+│   │       ├── retailer-map.ts   ← Per-tenant customer-number → Logiwa retailer GUID (retailer_mappings)
 │   │       └── queue.ts          ← Retry queue consumer for failed Logiwa calls
 │   ├── scripts/
 │   │   ├── admin.ts              ← CLI for tenant/key management (create, list, revoke)
@@ -64,27 +77,36 @@ Everything is multi-tenant. Each client gets their own API keys, Logiwa client m
 │   │   ├── App.css               ← Dashboard styling
 │   │   └── pages/
 │   │       ├── Dashboard.tsx     ← Stats overview, recent API activity
+│   │       ├── Activity.tsx      ← Live activity feed + cron health cards (all channels)
 │   │       ├── Tenants.tsx       ← Client management, Logiwa mapping, env toggle
 │   │       ├── ApiKeys.tsx       ← Generate/revoke keys per client
-│   │       ├── Orders.tsx        ← Order log with filters and pagination
+│   │       ├── Orders.tsx        ← Unified order log (api/sftp/zoho badges, payload drill-down)
+│   │       ├── Sftp.tsx          ← SFTP clients + file activity
+│   │       ├── Zoho.tsx          ← Zoho connector watch view
+│   │       ├── Aftership.tsx     ← AfterShip clients + push history + live courier status
 │   │       └── Errors.tsx        ← Error queue with bulk retry/resolve
-│   ├── functions/api/            ← Cloudflare Pages Functions (backend)
+│   ├── functions/api/            ← Cloudflare Pages Functions (portal backend — separate from the Worker!)
 │   │   ├── tenants.ts            ← CRUD tenants with endpoint selection
 │   │   ├── api-keys.ts           ← Generate/revoke keys (D1 + KV)
-│   │   ├── orders.ts             ← Query orders with filters
+│   │   ├── orders.ts             ← Unified order query (source derived via joins)
+│   │   ├── order-detail.ts       ← Per-order timeline + beautified R2 payloads
+│   │   ├── activity.ts           ← Merged activity feed + cron_runs health
+│   │   ├── sftp.ts / sftp-clients.ts ← SFTP file activity; SFTPGo account provisioning
+│   │   ├── _sftpgo.ts            ← SFTPGo REST helper (via CF Access service token)
+│   │   ├── aftership*.ts         ← AfterShip watch views (+ live status proxy)
+│   │   ├── zoho.ts               ← Zoho sync records
 │   │   ├── errors.ts             ← Error queue management
 │   │   ├── dashboard.ts          ← Aggregated stats
 │   │   ├── environment.ts        ← Per-client sandbox/production toggle
 │   │   └── logiwa-clients.ts     ← Live Logiwa client list for dropdowns
-│   └── wrangler.toml             ← Pages config with D1 + KV bindings
+│   └── wrangler.toml             ← Pages config with D1 + KV + R2 bindings
 ├── db/
-│   └── migrations/
-│       ├── 0001_init.sql         ← Core schema
-│       ├── 0002_tenant_endpoints.sql ← Endpoint config + base_url
-│       └── 0003_api_key_environment.sql ← Per-key sandbox/production column on api_keys
+│   └── migrations/               ← 0001–0011 (see D1 Schema section below)
 ├── docs/
-│   ├── api-spec.md               ← Client-facing API documentation
-│   ├── client-integration-guide.md ← Onboarding/integration guide for client devs
+│   ├── developer-guide.md        ← How it's all wired + how to build a new connector (START HERE)
+│   ├── client-integration-guide.md ← Onboarding/integration guide for client devs (the customer doc)
+│   ├── sftp-file-drop-guide.md   ← SFTP client contract: folders, file formats, confirmations
+│   ├── api-spec.md               ← (stub — superseded by client-integration-guide.md)
 │   └── logiwa-api-spec.txt       ← Logiwa IO v3.1 OpenAPI spec (full reference)
 └── .gitignore
 ```
@@ -138,13 +160,52 @@ Logiwa creds are also stored in KV (for portal access to fetch live client lists
 - PO receiving history upgraded to the Logiwa **v3.2** report (page size capped at 200)
 - Fixes: rate-limiter TTL (counter never expired), 1-based→0-based pagination, PO `currencyId` default USD(1)
 
-**⚠️ Known WIP at the tip of `master` (commits through Apr 28):** the tracking-sync cron
-(`api/src/lib/scheduled.ts`) still contains a `DIAGNOSTIC PROBE 2 (REVERT AFTER)` block and
-verbose `console.log` instrumentation from chasing a bug where sent orders were silently dropped
-by the Logiwa list endpoint. This probe/diagnostic code should be reverted once the sync is
-confirmed healthy.
+**Shipped July–August 2026 (connectors + hardening era):**
+- **SFTP file-drop connector** (Gray Tools live in production): clients drop gateway-v1-JSON
+  order/PO files into a chrooted `in/` folder on `sftp.ksp3plhq.com:2022` (SFTPGo on Linode,
+  R2-backed); a 2-min cron ingests via the existing order/PO paths, archives each attempt
+  timestamped to `processed|failed/`, and writes shipment-confirmation (ASN) files to `out/`
+  after actual ship w/ package data (completeness-guarded). Content-based routing:
+  `purchaseOrderLineList` → PO, `shipmentOrderLineList` → order. Re-drops of the same
+  filename are safe retries. See `docs/sftp-file-drop-guide.md`. Tables: `sftp_clients`,
+  `sftp_files` (0005). Portal provisions SFTPGo accounts via its REST API (through the
+  CF Access tunnel with a service token).
+- **Zoho connector** (Rescue ID): authenticated `POST /v1/webhooks/zoho` translates Zoho
+  Sales Orders into gateway orders (0004: `zoho_accounts`, `zoho_sync`).
+- **AfterShip connector** (Pivot Health live in production): on fulfillment, pushes trackings
+  to the client's AfterShip account (2026-07 API) mirroring their old WMS payload
+  (order_id, custom_fields webhook-secret/address/lot) + operational enrichment
+  (order_number/date, structured destination, weight, customers[] w/o subscriptions).
+  Creds in KV `aftership:<tenant>`; per-push audit in `aftership_pushes` (0008/0009).
+- **`GET /v1/inventory/availability`** — true ATP/sellable (Logiwa AvailableToPromise report);
+  nets backordered/unallocated demand, unlike `freeQuantity`.
+- **packType default resolution**: order/PO lines that omit `packType` get the product's
+  default from Logiwa (cached in `product_packtype_cache`, 0006) — makes the documented
+  behavior real.
+- **Per-tenant shipping-option mapping** (`shipping_option_mappings`, 0010): rewrites client
+  carrier-setup names (e.g. `Cheapest` → the prod `Cheapest/ALL` rate-shop) before Logiwa.
+- **Per-tenant retailer mapping** (`retailer_mappings`, 0011): client customer numbers →
+  Logiwa retailer GUIDs in `retailerDetails.retailerIdentifier` (drives retailer packing
+  slips); unmapped values move to `retailerCustomerAccountNumber` (Logiwa 422s non-GUIDs).
+- **Tracking-sync overhaul**: orders are environment-stamped at creation (0007) and checked
+  in the right Logiwa env (fixed 4,458 orders stuck since April: tenant-default env mismatch
+  + a ClientIdentifier filter that hid tenants' own orders); flips only on ACTUAL ship
+  (status/ship-scan — never tracking number alone); a per-15-min **recent-shipments sweep**
+  (one Logiwa list call per env) front-runs fresh shipments so confirmations land in ~15 min;
+  April's diagnostic probe code removed.
+- **Cron heartbeats** (`cron_runs`, 0006) — every job records last run + status; surfaced
+  as health cards in the portal.
+- **Portal**: unified Orders view (per-channel source badges, search, expandable per-order
+  timeline w/ raw R2 payloads), live **Activity** feed (15s refresh) + cron health strip,
+  **Zoho / SFTP / AfterShip** tabs (SFTP link management + auto-provisioning; AfterShip
+  drill-down w/ pushed payload + live courier status). Portal is gated behind Cloudflare
+  Access.
 
-**End-to-end tested:** Order submitted through `connect.ksp3plhq.com` → authenticated → validated → forwarded to Logiwa sandbox → order created successfully in Logiwa.
+**Production clients:** Master Tool Repair (API), Gray Tools (SFTP — orders, ASNs out, POs),
+Pivot Health (API + AfterShip), Rescue ID (Zoho, sandbox).
+
+**End-to-end proven in production:** order in (any channel) → Logiwa → warehouse ships →
+tracking flips ≤15 min → confirmation file / AfterShip push delivered.
 
 ## Getting Started
 
@@ -310,35 +371,61 @@ Push to `master` and both deploy automatically.
 
 ## What To Work On Next
 
-### Priority 0: Revert tracking-sync diagnostics
-`api/src/lib/scheduled.ts` still has the `DIAGNOSTIC PROBE 2 (REVERT AFTER)` block and verbose
-logging from the Apr 27–28 debugging of silently-dropped sent orders. Confirm the sync is healthy
-and strip the probe code before the next hardening pass.
-
 ### Priority 1: Endpoint Enforcement
 The `tenant_endpoints` table stores which endpoints each client has enabled, but the Worker router
-**still doesn't enforce it** (verified against `router.ts` — no 403/endpoint check). Add a check so
-disabled endpoints return 403.
+**still doesn't enforce it** — no 403/endpoint check. Design exists; ⚠️ turning it on changes
+behavior for Master Tool Repair's live key, so it needs an explicit go-ahead and a check that
+every live tenant's enabled-endpoints rows match what they actually call.
 
-### Priority 2: Cloudflare Access
-Gate `connect-portal.ksp3plhq.com` behind Cloudflare Access (SSO/email domain) so only the team can access the portal.
-
-### Priority 3: Enable Queues
+### Priority 2: Enable Queues
 Retry queue is coded but commented out in wrangler.toml. Requires Workers Paid plan ($5/mo). Once enabled, failed Logiwa calls auto-retry with backoff.
+
+### Priority 3: SFTP polish
+Error-feedback files to the client's `out/` folder on failed order files (currently failures are
+visible only in our portal); hide `processed/`/`failed/` archive folders from the client chroot;
+R2 lifecycle/retention policy; SFTPGo account auto-provision from the portal's client-create form.
 
 ### Priority 4: Schema Cleanup
 Remove unused `logiwa_api_url` and `logiwa_credentials` columns from tenants table (creds are now in env vars/KV).
 
+### Done (formerly on this list)
+- ~~Revert tracking-sync diagnostics~~ — DIAG probe removed Jul 15 as part of the tracking-sync
+  overhaul (env-stamped orders, both-env fallback, real-ship flip gate).
+- ~~Cloudflare Access on the portal~~ — live; SFTPGo admin UI is also tunneled behind Access
+  at `sftp-admin.ksp3plhq.com`.
+
 ## D1 Schema
 
-Tables: `tenants`, `api_keys`, `orders`, `error_log`, `inventory_cache`, `request_log`, `tenant_endpoints`
+Tables: `tenants`, `api_keys`, `orders`, `error_log`, `inventory_cache`, `request_log`,
+`tenant_endpoints`, `zoho_accounts`, `zoho_sync` (0004), `sftp_clients`, `sftp_files` (0005),
+`cron_runs`, `product_packtype_cache` (0006), `aftership_accounts`, `aftership_pushes` (0008/0009),
+`shipping_option_mappings` (0010), `retailer_mappings` (0011)
 
 Key columns on `tenants`:
 - `logiwa_environment` — `sandbox` or `production` (per-client toggle)
 - `logiwa_sandbox_client_id` — Logiwa client GUID for sandbox
 - `logiwa_prod_client_id` — Logiwa client GUID for production
+- `sftp_username` — links the tenant to its SFTPGo account (SFTP tenants only)
 
 Key columns on `api_keys`:
-- `environment` — `sandbox` (default) or `production`, per-key override (migration `0003`)
+- `environment` — `sandbox` (default) or `production`, per-key override (migration `0003`).
+  ⚠️ Cutting a tenant over to production requires flipping the tenant fields **and** each active
+  key's environment in **both** D1 and the KV `apikey:<sha256>` record — the portal toggle alone
+  only changes the tenant default.
+
+Key columns on `orders`:
+- `environment` — stamped at creation from the resolved key/tenant env (migration `0007`);
+  tracking-sync uses this to query the right Logiwa environment.
 
 See `db/migrations/` for full schema.
+
+## Operational gotchas
+
+- **`wrangler kv key ...` defaults to a LOCAL simulator — always pass `--remote`.** Two separate
+  multi-day mysteries (util-key 401s, "missing" AfterShip creds) were writes that never reached
+  production KV.
+- Secrets with special characters: write a JSON/temp file with Node and use `--path` /
+  `wrangler secret bulk`; never shell-interpolate (PowerShell also prepends a BOM when piping).
+- Logiwa: SKUs must be ≥3 chars; `retailerIdentifier` must be a GUID (422 otherwise); prod
+  address verification can reject orders with an *empty-message* 400 (sandbox has no AVS);
+  a tracking number existing ≠ shipped — labels print minutes before the ship scan.
