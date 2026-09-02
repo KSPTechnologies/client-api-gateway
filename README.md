@@ -105,6 +105,7 @@ Everything is multi-tenant. Each client gets their own API keys, Logiwa client m
 ├── docs/
 │   ├── developer-guide.md        ← How it's all wired + how to build a new connector (START HERE)
 │   ├── client-integration-guide.md ← Onboarding/integration guide for client devs (the customer doc)
+│   ├── KSP-API-Integration-Guide.pdf ← Rendered/shareable PDF of the guide above (regen on guide changes)
 │   ├── sftp-file-drop-guide.md   ← SFTP client contract: folders, file formats, confirmations
 │   ├── api-spec.md               ← (stub — superseded by client-integration-guide.md)
 │   └── logiwa-api-spec.txt       ← Logiwa IO v3.1 OpenAPI spec (full reference)
