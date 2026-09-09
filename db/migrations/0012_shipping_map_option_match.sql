@@ -1,0 +1,12 @@
+-- Optional option-name refinement for shipping_option_mappings: when
+-- match_option_name is set, the mapping applies only to orders whose
+-- shippingOptionDetails.shippingOptionName ALSO matches (case-insensitive).
+-- NULL preserves the original setup-name-only behavior, so existing rows
+-- (Pivot, Gray) are untouched. Additive.
+--
+-- First use: Master Tool Repair sends Cheapest/Cheapest with option names
+-- "Ground", "INTLUPS", "ALL", etc. Only "ALL" needs rewriting (to "ALL-MTR",
+-- created 2026-09-10 because two clients sharing the option name "ALL" under
+-- one carrier setup breaks Logiwa's order-import matcher with
+-- ShippingOptionNotFound).
+ALTER TABLE shipping_option_mappings ADD COLUMN match_option_name TEXT;

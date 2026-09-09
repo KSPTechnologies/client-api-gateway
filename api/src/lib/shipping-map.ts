@@ -4,8 +4,11 @@ import { Env } from '../index';
  * Per-tenant shipping-option rewrite (shipping_option_mappings table).
  * If the order's shippingOptionDetails.carrierSetupName matches a mapping for
  * this tenant, the whole shippingOptionDetails object is replaced with the
- * configured production version. No rows for a tenant = no-op, so existing
- * clients are untouched.
+ * configured production version. A mapping row may additionally set
+ * match_option_name (migration 0012); it then applies only when the order's
+ * shippingOptionName also matches, so one option under a setup can be rewritten
+ * while its siblings (e.g. Ground under the same rate-shop setup) pass through.
+ * No rows for a tenant = no-op, so existing clients are untouched.
  */
 export async function applyShippingOptionMapping(
   env: Env,
@@ -18,10 +21,20 @@ export async function applyShippingOptionMapping(
 
   try {
     const row = (await env.DB.prepare(
-      `SELECT replacement FROM shipping_option_mappings
+      `SELECT replacement, match_option_name FROM shipping_option_mappings
        WHERE tenant_id = ? AND enabled = 1 AND lower(match_setup_name) = lower(?)`
     ).bind(tenantId, setupName).first()) as any;
     if (!row || !row.replacement) return;
+
+    if (row.match_option_name) {
+      const optionName = details?.shippingOptionName;
+      if (
+        typeof optionName !== 'string' ||
+        optionName.toLowerCase() !== String(row.match_option_name).toLowerCase()
+      ) {
+        return;
+      }
+    }
 
     const replacement = JSON.parse(row.replacement);
     order.shippingOptionDetails = replacement;
