@@ -39,6 +39,21 @@ function tenantCtx(c: SftpClient): TenantContext {
   };
 }
 
+// Plain-text note written next to a failed file in the client's failed/
+// folder (as <archived name>.error.txt). The original stays byte-exact.
+function buildErrorNote(fileName: string, orderCode: string | null, error: string): string {
+  return [
+    'KSP Gateway — order file import FAILED',
+    `file: ${fileName}`,
+    `failedAt: ${new Date().toISOString()}`,
+    `orderCode: ${orderCode || '(not determined)'}`,
+    `error: ${error}`,
+    '',
+    'Fix the data and re-drop the file (same filename is fine) into /in to retry.',
+    '',
+  ].join('\n');
+}
+
 export async function syncSftpInbound(env: Env): Promise<void> {
   const { results: clients } = await env.DB.prepare(
     `SELECT sftp_username, tenant_id, environment, r2_prefix FROM sftp_clients WHERE enabled = 1`
@@ -149,6 +164,14 @@ export async function syncSftpInbound(env: Env): Promise<void> {
         await env.SFTP.put(dest, text);
         await env.SFTP.delete(key);
 
+        // On failure, drop a sidecar .error.txt next to the archived file so
+        // the client's IT can see WHY without touching the byte-exact original.
+        if (errorMsg) {
+          try {
+            await env.SFTP.put(`${dest}.error.txt`, buildErrorNote(name, firstCode, errorMsg));
+          } catch { /* best-effort — never block the archive over the note */ }
+        }
+
         await env.DB.prepare(
           `UPDATE sftp_files SET order_code=?, gateway_order_id=?, status=?, last_error=?, r2_key=?, updated_at=datetime('now') WHERE id=?`
         ).bind(firstCode, firstOrderId, errorMsg ? 'error' : 'sent', errorMsg, dest, fileId).run();
@@ -163,6 +186,9 @@ export async function syncSftpInbound(env: Env): Promise<void> {
             movedTo = `${c.r2_prefix}failed/${stamp}_${name}`;
             await env.SFTP.put(movedTo, await b.text());
             await env.SFTP.delete(key);
+            try {
+              await env.SFTP.put(`${movedTo}.error.txt`, buildErrorNote(name, null, msg));
+            } catch { /* best-effort */ }
           }
         } catch {
           movedTo = null; /* leave in place for retry next run */

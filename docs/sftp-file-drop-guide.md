@@ -143,10 +143,18 @@ Reading it:
 
 ## 6. Errors
 
-If a file fails to import it moves to `failed/` with the timestamped name. KSP monitors
-failures on our internal portal and will reach out with the error details; fix the data
-and re-drop the file in `in/` under the same name. (Automated error-feedback files to
-your `out/` folder are on the roadmap.)
+If a file fails to import it moves to `failed/` with the timestamped name, and a
+plain-text note appears right next to it explaining why:
+
+```
+failed/20260921T141502_orders.json            ← your file, byte-exact as received
+failed/20260921T141502_orders.json.error.txt  ← the reason it failed
+```
+
+The `.error.txt` contains the file name, timestamp, order code (when determinable), and
+the error message (e.g. an unknown SKU or a Logiwa validation error). Your IT can watch
+`failed/` to catch failures automatically. Fix the data and re-drop the file in `in/`
+under the same name to retry. KSP also monitors failures on our internal portal.
 
 ## 7. Support
 
