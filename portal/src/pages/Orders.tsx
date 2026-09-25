@@ -8,6 +8,7 @@ interface Order {
   external_order_id: string | null;
   logiwa_order_id: string | null;
   status: string;
+  record_type: 'order' | 'po';
   source: 'api' | 'sftp' | 'zoho';
   sftp_file: string | null;
   sftp_confirmation: string | null;
@@ -160,7 +161,12 @@ export default function Orders() {
                 <Fragment key={o.id}>
                   <tr onClick={() => toggleExpand(o.id)} style={{ cursor: 'pointer' }}>
                     <td>{o.tenant_name}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{o.external_order_id || '—'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                      {o.external_order_id || '—'}
+                      {o.record_type === 'po' && (
+                        <span style={{ background: '#e0f2f1', color: '#00695c', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, marginLeft: 8 }}>PO</span>
+                      )}
+                    </td>
                     <td><SourceBadge source={o.source} /></td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{o.logiwa_order_id ? o.logiwa_order_id.slice(0, 13) + '…' : '—'}</td>
                     <td><span className={`badge ${o.status}`}>{o.status}</span></td>

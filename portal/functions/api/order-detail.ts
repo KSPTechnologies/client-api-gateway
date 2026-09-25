@@ -30,7 +30,43 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const order = (await env.DB.prepare(
     `SELECT o.*, t.name as tenant_name FROM orders o JOIN tenants t ON o.tenant_id = t.id WHERE o.id = ?`
   ).bind(id).first()) as any;
-  if (!order) return Response.json({ error: 'order not found' }, { status: 404 });
+
+  // Not an order? It may be a purchase order (migration 0013) — same drill-down,
+  // simpler timeline. Orders keep their existing path untouched.
+  if (!order) {
+    const po = (await env.DB.prepare(
+      `SELECT p.*, t.name as tenant_name FROM purchase_orders p JOIN tenants t ON p.tenant_id = t.id WHERE p.id = ?`
+    ).bind(id).first()) as any;
+    if (!po) return Response.json({ error: 'order not found' }, { status: 404 });
+
+    const poSftp = (await env.DB.prepare(
+      `SELECT * FROM sftp_files WHERE order_code = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 1`
+    ).bind(po.external_code, po.tenant_id).first()) as any;
+
+    const poTimeline: { at: string | null; label: string; detail: string }[] = [];
+    if (poSftp) {
+      poTimeline.push({ at: poSftp.created_at, label: 'Received via SFTP', detail: `file ${poSftp.file_name} (user ${poSftp.sftp_username})` });
+    } else {
+      poTimeline.push({ at: po.created_at, label: 'Received via API', detail: `POST /v1/purchase-orders (code ${po.external_code})` });
+    }
+    if (po.logiwa_po_id) {
+      poTimeline.push({ at: po.updated_at, label: 'Created in Logiwa', detail: `Logiwa PO ${po.logiwa_po_id}` });
+    }
+    if (po.status === 'error') {
+      poTimeline.push({ at: po.updated_at, label: 'Errored', detail: po.last_error || 'see error message' });
+    }
+
+    return Response.json({
+      order: { ...po, external_order_id: po.external_code, logiwa_order_id: po.logiwa_po_id, record_type: 'po' },
+      source: poSftp ? 'sftp' : 'api',
+      sftp: poSftp || null,
+      zoho: null,
+      timeline: poTimeline,
+      requestPayload: await readPayload(env, po.request_payload_key),
+      responsePayload: await readPayload(env, po.response_payload_key),
+      payloadsAvailable: !!(env.R2 && typeof env.R2.get === 'function'),
+    });
+  }
 
   const sftp = (await env.DB.prepare(
     `SELECT * FROM sftp_files WHERE gateway_order_id = ? ORDER BY created_at DESC LIMIT 1`

@@ -129,6 +129,17 @@ export async function handlePurchaseOrders(
       const responseKey = `purchase-orders/${tenant.tenantId}/${poId}/response.json`;
       await env.R2.put(responseKey, JSON.stringify(result));
 
+      // Record in D1 (migration 0013) so POs appear in the portal's unified
+      // Orders view. Best-effort — never fail a created PO over bookkeeping.
+      try {
+        await env.DB.prepare(
+          `INSERT INTO purchase_orders (id, tenant_id, external_code, logiwa_po_id, status, environment, request_payload_key, response_payload_key)
+           VALUES (?, ?, ?, ?, 'sent', ?, ?, ?)`
+        ).bind(poId, tenant.tenantId, poCode, logiwaId, tenant.environment, r2Key, responseKey).run();
+      } catch (e) {
+        console.log('[po] D1 record failed:', e instanceof Error ? e.message : e);
+      }
+
       return Response.json({
         purchaseOrderId: poId,
         logiwaIdentifier: logiwaId,
@@ -144,6 +155,15 @@ export async function handlePurchaseOrders(
         `INSERT INTO error_log (tenant_id, endpoint, method, error_message, error_code, retry_count, resolved, created_at)
          VALUES (?, '/v1/purchase-orders', 'POST', ?, 502, 0, 0, datetime('now'))`
       ).bind(tenant.tenantId, errMsg).run();
+
+      try {
+        await env.DB.prepare(
+          `INSERT INTO purchase_orders (id, tenant_id, external_code, status, last_error, environment, request_payload_key)
+           VALUES (?, ?, ?, 'error', ?, ?, ?)`
+        ).bind(poId, tenant.tenantId, poCode, errMsg, tenant.environment, r2Key).run();
+      } catch (e) {
+        console.log('[po] D1 record failed:', e instanceof Error ? e.message : e);
+      }
 
       return Response.json({
         purchaseOrderId: poId,
