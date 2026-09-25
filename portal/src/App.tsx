@@ -26,7 +26,7 @@ function App() {
           <li className={page === 'activity' ? 'active' : ''} onClick={() => setPage('activity')}>Activity</li>
           <li className={page === 'tenants' ? 'active' : ''} onClick={() => setPage('tenants')}>Clients</li>
           <li className={page === 'api-keys' ? 'active' : ''} onClick={() => setPage('api-keys')}>API Keys</li>
-          <li className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>Orders</li>
+          <li className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>Orders &amp; PO's</li>
           <li className={page === 'zoho' ? 'active' : ''} onClick={() => setPage('zoho')}>Zoho</li>
           <li className={page === 'sftp' ? 'active' : ''} onClick={() => setPage('sftp')}>SFTP</li>
           <li className={page === 'aftership' ? 'active' : ''} onClick={() => setPage('aftership')}>AfterShip</li>

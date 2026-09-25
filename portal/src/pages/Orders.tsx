@@ -103,7 +103,7 @@ export default function Orders() {
 
   return (
     <div>
-      <div className="page-header"><h1>Orders</h1></div>
+      <div className="page-header"><h1>Orders &amp; PO's</h1></div>
 
       <div className="toolbar">
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
