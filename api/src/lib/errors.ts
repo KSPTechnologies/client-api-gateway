@@ -36,6 +36,10 @@ export function notFound(message = 'Resource not found'): ApiError {
   return new ApiError(404, message, 'NOT_FOUND');
 }
 
+export function forbidden(message: string): ApiError {
+  return new ApiError(403, message, 'ENDPOINT_DISABLED');
+}
+
 export function methodNotAllowed(): ApiError {
   return new ApiError(405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
 }

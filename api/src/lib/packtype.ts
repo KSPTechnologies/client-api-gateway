@@ -62,3 +62,78 @@ export async function resolveMissingPackTypes(
     }
   }
 }
+
+/**
+ * Pack-type CATALOG validation for product (SKU) creation. Clients must use
+ * pack types that exist in Logiwa (e.g. Unit, Case, Master Case, Pack) — no
+ * invented verbiage. Valid names come from /v3.1/Helper/packtypes, cached in
+ * KV per environment for an hour.
+ *
+ * Matching is case-insensitive and the payload is normalized to Logiwa's
+ * canonical casing ("unit" -> "Unit"); anything that doesn't match is
+ * rejected by the caller with a 400 listing the allowed values.
+ */
+export async function getValidPackTypes(
+  env: Env,
+  creds: LogiwaCredentials,
+  environment: string
+): Promise<string[] | null> {
+  const cacheKey = `packtypes:${environment}`;
+  try {
+    const cached = await env.KV.get(cacheKey, 'json') as string[] | null;
+    if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+  } catch { /* fall through to live fetch */ }
+
+  try {
+    const result = await logiwaFetch(creds, 'GET', '/v3.1/Helper/packtypes');
+    const names = ((result?.data ?? result) as Array<{ name?: string }> | undefined)
+      ?.map((p) => p?.name)
+      .filter((n): n is string => typeof n === 'string' && n.length > 0);
+    if (!names || names.length === 0) return null;
+    try {
+      await env.KV.put(cacheKey, JSON.stringify(names), { expirationTtl: 3600 });
+    } catch { /* cache write is best-effort */ }
+    return names;
+  } catch (err) {
+    console.log('[packtype] catalog fetch failed:', err instanceof Error ? err.message : String(err));
+    return null; // caller treats null as "cannot validate" and passes through
+  }
+}
+
+/**
+ * Validate (and case-normalize) every pack-type-name field in a product
+ * payload: the top-level uomPackTypeName plus any *packTypeName-ish string in
+ * irregularPackTypeList / hierarchicalPackTypeList entries.
+ * Returns the list of invalid values found (empty = all good).
+ */
+export function validateProductPackTypes(
+  body: Record<string, unknown>,
+  validNames: string[]
+): string[] {
+  const byLower = new Map(validNames.map((n) => [n.toLowerCase(), n]));
+  const invalid: string[] = [];
+
+  const checkAndNormalize = (obj: Record<string, unknown>, field: string) => {
+    const val = obj[field];
+    if (typeof val !== 'string' || val.trim() === '') return;
+    const canonical = byLower.get(val.trim().toLowerCase());
+    if (canonical) obj[field] = canonical;
+    else if (!invalid.includes(val)) invalid.push(val);
+  };
+
+  checkAndNormalize(body, 'uomPackTypeName');
+
+  for (const listField of ['irregularPackTypeList', 'hierarchicalPackTypeList']) {
+    const list = body[listField];
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      for (const key of Object.keys(e)) {
+        if (/packtypename$/i.test(key)) checkAndNormalize(e, key);
+      }
+    }
+  }
+
+  return invalid;
+}

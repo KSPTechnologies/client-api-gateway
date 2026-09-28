@@ -705,7 +705,7 @@ Create a new product/SKU. This should be used when you need to add a product to 
   "sku": "PRD-WIDGET-100",
   "name": "Widget 100",
   "description": "Standard widget, blue",
-  "uomPackTypeName": "Piece",
+  "uomPackTypeName": "Unit",
   "packingSettings": {
     "uomPackTypeWeightUnitId": 1,
     "uomPackTypeWeight": 1.0,
@@ -729,7 +729,7 @@ Create a new product/SKU. This should be used when you need to add a product to 
   "salesPrice": 19.99,
   "purchasePrice": 10.50,
   "taxRate": 18,
-  "uomPackTypeName": "Piece",
+  "uomPackTypeName": "Unit",
   "productGroupName": "Apparel",
   "productTypeName": "T-Shirt",
   "isActive": true,
@@ -785,7 +785,7 @@ Create a new product/SKU. This should be used when you need to add a product to 
 | `sku` | Unique product SKU |
 | `name` | Product name |
 | `description` | Product description |
-| `uomPackTypeName` | Unit of measure: `Piece`, `Unit`, `Case`, `Pack`, or `Master Case` |
+| `uomPackTypeName` | Unit of measure — must be one of KSP's configured pack types: `Unit`, `Case`, `Master Case`, or `Pack`. Unknown values are rejected (400 INVALID_PACK_TYPE). |
 | `packingSettings` | Packing dimensions/weight (see Packing Settings below) |
 
 ### Complete Field Reference — Product
@@ -800,7 +800,7 @@ Create a new product/SKU. This should be used when you need to add a product to 
 | `salesPrice` | number | Sales price |
 | `purchasePrice` | number | Purchase/cost price |
 | `taxRate` | number | Tax rate percentage |
-| `uomPackTypeName` | string | Default pack type (e.g. "Unit", "Piece", "Case") |
+| `uomPackTypeName` | string | Default pack type (e.g. "Unit", "Case") |
 | `productGroupName` | string | Product group |
 | `productTypeName` | string | Product type |
 | `isActive` | boolean | Whether product is active |
@@ -928,9 +928,9 @@ Submit an inbound purchase order (ASN) to notify the warehouse of incoming inven
   "plannedReceivingDate": "2026-03-25",
   "referenceNumber": "VENDOR-REF-123",
   "purchaseOrderLineList": [
-    { "sku": "881469", "packType": "Piece", "packQuantity": 1 },
-    { "sku": "890354", "packType": "Piece", "packQuantity": 1 },
-    { "sku": "888940", "packType": "Piece", "packQuantity": 5, "unitPrice": 12.50 }
+    { "sku": "881469", "packType": "Unit", "packQuantity": 1 },
+    { "sku": "890354", "packType": "Unit", "packQuantity": 1 },
+    { "sku": "888940", "packType": "Unit", "packQuantity": 5, "unitPrice": 12.50 }
   ]
 }
 ```
@@ -994,7 +994,7 @@ Both vendor address objects share the same structure:
 |-------|------|----------|-------------|
 | `sku` | string | **Yes** | Product SKU (must exist in the system) |
 | `packQuantity` | integer | **Yes** | Quantity expected |
-| `packType` | string | **Yes** | Pack type: `Piece`, `Unit`, `Case`, `Pack`, or `Master Case` |
+| `packType` | string | **Yes** | Pack type — one of: `Unit`, `Case`, `Master Case`, `Pack` |
 | `unitPrice` | number | No | Unit cost |
 | `taxRate` | number | No | Tax rate |
 | `note` | string | No | Line item note |

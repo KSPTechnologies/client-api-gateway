@@ -9,7 +9,8 @@ import { handleWebhooks } from './webhooks';
 import { handleZohoWebhook } from './zoho';
 import { logRequest } from '../lib/logger';
 import { checkRateLimit } from '../lib/rate-limit';
-import { ApiError, unauthorized, notFound, rateLimited, internal } from '../lib/errors';
+import { resolveEndpointType, isEndpointEnabled } from '../lib/endpoints';
+import { ApiError, unauthorized, notFound, rateLimited, internal, forbidden } from '../lib/errors';
 
 export async function handleRequest(
   request: Request,
@@ -64,6 +65,17 @@ export async function handleRequest(
       'X-RateLimit-Reset': resetSeconds.toString(),
       'Retry-After': resetSeconds.toString(),
     });
+  }
+
+  // Endpoint enforcement — the portal's per-client endpoint selections are
+  // authoritative: a disabled (or missing) tenant_endpoints row => 403.
+  const endpointType = resolveEndpointType(request.method, path);
+  if (endpointType && !(await isEndpointEnabled(env, tenant.tenantId, endpointType))) {
+    const response403 = forbidden(
+      `Endpoint not enabled for this account: ${request.method} ${path} (${endpointType}). Contact KSP to enable it.`
+    ).toResponse();
+    ctx.waitUntil(logRequest(env, tenant.tenantId, request, response403, `endpoint disabled: ${endpointType}`));
+    return withCors(response403, rateLimitHeaders(tenant.rateLimit, remaining, resetSeconds));
   }
 
   // Route

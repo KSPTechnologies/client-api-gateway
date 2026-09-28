@@ -2,6 +2,7 @@ import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { badRequest, methodNotAllowed } from '../lib/errors';
 import { getLogiwaCredentials, getTenantLogiwaConfig, LogiwaCredentials } from '../lib/logiwa';
+import { getValidPackTypes, validateProductPackTypes } from '../lib/packtype';
 import { ApiError } from '../lib/errors';
 
 async function logiwaFetchDirect(
@@ -97,6 +98,22 @@ export async function handleProducts(
 
     if (!body.sku) {
       throw badRequest('Missing required field: sku');
+    }
+
+    // Pack-type verbiage guard: SKUs may only use pack types that exist in
+    // Logiwa (no client-invented names). Case is normalized ("unit" -> "Unit");
+    // unknown names are rejected with the allowed list. If the catalog is
+    // temporarily unavailable we pass through (Logiwa remains the backstop).
+    const validPackTypes = await getValidPackTypes(env, creds, logiwaConfig.environment);
+    if (validPackTypes) {
+      const invalid = validateProductPackTypes(body, validPackTypes);
+      if (invalid.length > 0) {
+        throw badRequest(
+          `Invalid pack type${invalid.length > 1 ? 's' : ''}: ${invalid.map((v) => `"${v}"`).join(', ')}. ` +
+          `Valid pack types are: ${validPackTypes.join(', ')}.`,
+          'INVALID_PACK_TYPE'
+        );
+      }
     }
 
     // Store raw payload in R2
