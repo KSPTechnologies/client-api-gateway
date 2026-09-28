@@ -372,11 +372,15 @@ Push to `master` and both deploy automatically.
 
 ## What To Work On Next
 
-### Priority 1: Endpoint Enforcement
-The `tenant_endpoints` table stores which endpoints each client has enabled, but the Worker router
-**still doesn't enforce it** — no 403/endpoint check. Design exists; ⚠️ turning it on changes
-behavior for Master Tool Repair's live key, so it needs an explicit go-ahead and a check that
-every live tenant's enabled-endpoints rows match what they actually call.
+### ~~Priority 1: Endpoint Enforcement~~ — DONE (Sep 28, 2026)
+The router now enforces `tenant_endpoints`: a disabled or missing row returns 403
+`ENDPOINT_DISABLED` (`lib/endpoints.ts`; fail-open on D1 errors). A 30-day usage audit ran
+first and missing rows were backfilled (MTR + Bokser `create_product`) before the deploy —
+verified live with a throwaway key (403 on disabled, 200 on enabled, zero client impact).
+The portal Clients form's endpoint checkboxes are now real. Same deploy added the
+**pack-type verbiage guard**: `POST /v1/products` rejects pack types that don't exist in
+Logiwa (400 `INVALID_PACK_TYPE` listing Unit/Case/Master Case/Pack), case-normalizing
+valid ones; catalog cached in KV 1h per environment.
 
 ### Priority 2: Enable Queues
 Retry queue is coded but commented out in wrangler.toml. Requires Workers Paid plan ($5/mo). Once enabled, failed Logiwa calls auto-retry with backoff.
