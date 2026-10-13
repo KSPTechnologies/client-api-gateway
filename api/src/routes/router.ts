@@ -7,6 +7,7 @@ import { handlePurchaseOrders } from './purchase-orders';
 import { handleProducts } from './products';
 import { handleWebhooks } from './webhooks';
 import { handleZohoWebhook } from './zoho';
+import { handleSpeedeeCarrier } from './speedee';
 import { logRequest } from '../lib/logger';
 import { checkRateLimit } from '../lib/rate-limit';
 import { resolveEndpointType, isEndpointEnabled } from '../lib/endpoints';
@@ -31,6 +32,13 @@ export async function handleRequest(
   // Health check — no auth required
   if (path === '/v1/health') {
     return withCors(Response.json({ status: 'ok', timestamp: new Date().toISOString() }));
+  }
+
+  // SpeeDee custom-carrier adapter — Logiwa calls these with its own
+  // key/secret -> bearer token system (NOT tenant X-API-Key auth), so it
+  // branches before the tenant auth gate, like the Zoho webhook.
+  if (path.startsWith('/carriers/speedee')) {
+    return withCors(await handleSpeedeeCarrier(request, env, path));
   }
 
   // Zoho connector webhook — authenticated (X-API-Key), translates Zoho -> order.
