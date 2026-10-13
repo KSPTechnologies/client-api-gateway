@@ -99,6 +99,7 @@ async function issueToken(request: Request, env: Env): Promise<Response> {
 
   console.log(`[speedee] token request shape=${shape} keyPresent=${!!apiKey}`);
   if (!apiKey || !apiSecret) {
+    await logCall(env, { endpoint: 'token', ok: false, request: { shape }, message: 'missing credentials' });
     return Response.json({ error: 'missing credentials' }, { status: 400 });
   }
 
@@ -107,8 +108,10 @@ async function issueToken(request: Request, env: Env): Promise<Response> {
     `SELECT id FROM carrier_api_clients WHERE carrier='speedee' AND api_key = ? AND secret_hash = ? AND active = 1`
   ).bind(apiKey, secretHash).first()) as any;
   if (!row) {
+    await logCall(env, { endpoint: 'token', ok: false, request: { shape }, message: 'invalid credentials' });
     return Response.json({ error: 'invalid credentials' }, { status: 401 });
   }
+  await logCall(env, { endpoint: 'token', ok: true, request: { shape }, message: `token issued (${shape})` });
 
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   await env.KV.put(`speedee_token:${token}`, JSON.stringify({ apiKey, clientId: row.id }), { expirationTtl: 3600 });
@@ -126,6 +129,74 @@ async function issueToken(request: Request, env: Env): Promise<Response> {
 async function sha256Hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ── Call log (portal SpeeDee page) ───────────────────
+// One row per processed item/event; payloads redacted (never store label or
+// report bodies) and truncated. Best-effort — logging can never fail a call.
+
+const LOG_MAX = 10_000;
+
+function redact(value: any): any {
+  if (Array.isArray(value)) return value.map(redact);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = /^encoded/i.test(k) && typeof v === 'string'
+        ? `[redacted ${v.length} chars]`
+        : redact(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+function asLogJson(value: any): string | null {
+  if (value === undefined || value === null) return null;
+  try {
+    const s = JSON.stringify(redact(value));
+    return s.length > LOG_MAX ? s.slice(0, LOG_MAX) + '…(truncated)' : s;
+  } catch {
+    return null;
+  }
+}
+
+async function logCall(env: Env, row: {
+  endpoint: string; environment?: string | null;
+  code?: string | null; identifier?: string | null; speedeeOrderId?: string | null;
+  ok?: boolean | null; durationMs?: number | null;
+  request?: any; response?: any; message?: string | null;
+}): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO speedee_call_log (id, endpoint, environment, shipment_order_code, shipment_order_identifier, speedee_order_id, is_successful, duration_ms, request_json, response_json, message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(), row.endpoint, row.environment ?? null,
+      row.code ?? null, row.identifier ?? null, row.speedeeOrderId ?? null,
+      row.ok === undefined || row.ok === null ? null : (row.ok ? 1 : 0),
+      row.durationMs ?? null, asLogJson(row.request), asLogJson(row.response),
+      row.message ? String(row.message).slice(0, 300) : null
+    ).run();
+  } catch (err) {
+    console.log('[speedee] call log write failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+function entryLog(env: Env, endpoint: string, req: any, entry: any, startedMs: number): Promise<void> {
+  const msgs: string[] = Array.isArray(entry?.message) ? entry.message : [];
+  return logCall(env, {
+    endpoint,
+    environment: envOf(req),
+    code: req?.shipmentOrderCode ?? null,
+    identifier: req?.shipmentOrderIdentifier ?? null,
+    speedeeOrderId: entry?.packageResponse?.[0]?.externalReference ?? null,
+    ok: entry?.isSuccessful === true,
+    durationMs: Date.now() - startedMs,
+    request: req,
+    response: entry,
+    message: entry?.isSuccessful === true ? (msgs[0] ?? null) : (msgs[0] ?? 'failed'),
+  });
 }
 
 // ── Shared helpers ───────────────────────────────────
@@ -176,46 +247,54 @@ async function handleRate(env: Env, cfg: SpeedeeConfig, body: any, webhookUrl: s
     const trigger = mockTrigger(cfg, req);
     if (trigger === 'http400') return Response.json({ error: 'mock 400' }, { status: 400 });
     if (trigger === 'timeout') await sleep(15_000);
-    if (trigger === 'fail') { out.push(fail(req, ['mock failure (FAIL trigger)'])); continue; }
 
-    try {
-      const environment = envOf(req);
-      const creds = await getSpeedeeCreds(env, environment);
-      if (!creds) { out.push(fail(req, [`SpeeDee ${environment} credentials not configured`])); continue; }
-
-      const mapped = buildSpeedeeBody(req, cfg, webhookUrl);
-      if (mapped.errors.length) { out.push(fail(req, mapped.errors)); continue; }
-
-      const quote = await speedee.quote(creds, cfg, mapped.body);
-      const vErrs = validationMessages(quote);
-      if (vErrs.length) { out.push(fail(req, vErrs)); continue; }
-
-      const charges: any[] = quote?.charges ?? quote?.data?.charges ?? [];
-      const buckets = bucketCharges(charges, cfg);
-      const dropoffEnd = quote?.dropoffWindow?.end ?? quote?.data?.dropoffWindow?.end ?? null;
-      const readyAt = String((mapped.body as any).readyAt);
-
-      out.push({
-        shipmentOrderIdentifier: req?.shipmentOrderIdentifier ?? null,
-        shipmentOrderCode: req?.shipmentOrderCode ?? null,
-        rateList: [{
-          carrier: cfg.displayName,
-          shippingOption: req?.shippingOption ?? req?.shippingOptionName ?? 'GROUND',
-          totalCost: buckets.totalCost,
-          shippingCost: buckets.shippingCost,
-          otherCost: buckets.otherCost,
-          currency: 'USD',
-          expectedDeliveryDate: dropoffEnd,
-          estimatedDays: dropoffEnd ? businessDaysBetween(readyAt, dropoffEnd) : 1,
-        }],
-        isSuccessful: true,
-        message: mapped.warnings,
-      });
-    } catch (err) {
-      out.push(fail(req, [err instanceof Error ? err.message : String(err)]));
-    }
+    const t0 = Date.now();
+    const entry = trigger === 'fail'
+      ? fail(req, ['mock failure (FAIL trigger)'])
+      : await rateOne(env, cfg, req, webhookUrl);
+    out.push(entry);
+    await entryLog(env, 'rate', req, entry, t0);
   }
   return Response.json({ data: out });
+}
+
+async function rateOne(env: Env, cfg: SpeedeeConfig, req: any, webhookUrl: string): Promise<Record<string, unknown>> {
+  try {
+    const environment = envOf(req);
+    const creds = await getSpeedeeCreds(env, environment);
+    if (!creds) return fail(req, [`SpeeDee ${environment} credentials not configured`]);
+
+    const mapped = buildSpeedeeBody(req, cfg, webhookUrl);
+    if (mapped.errors.length) return fail(req, mapped.errors);
+
+    const quote = await speedee.quote(creds, cfg, mapped.body);
+    const vErrs = validationMessages(quote);
+    if (vErrs.length) return fail(req, vErrs);
+
+    const charges: any[] = quote?.charges ?? quote?.data?.charges ?? [];
+    const buckets = bucketCharges(charges, cfg);
+    const dropoffEnd = quote?.dropoffWindow?.end ?? quote?.data?.dropoffWindow?.end ?? null;
+    const readyAt = String((mapped.body as any).readyAt);
+
+    return {
+      shipmentOrderIdentifier: req?.shipmentOrderIdentifier ?? null,
+      shipmentOrderCode: req?.shipmentOrderCode ?? null,
+      rateList: [{
+        carrier: cfg.displayName,
+        shippingOption: req?.shippingOption ?? req?.shippingOptionName ?? 'GROUND',
+        totalCost: buckets.totalCost,
+        shippingCost: buckets.shippingCost,
+        otherCost: buckets.otherCost,
+        currency: 'USD',
+        expectedDeliveryDate: dropoffEnd,
+        estimatedDays: dropoffEnd ? businessDaysBetween(readyAt, dropoffEnd) : 1,
+      }],
+      isSuccessful: true,
+      message: mapped.warnings,
+    };
+  } catch (err) {
+    return fail(req, [err instanceof Error ? err.message : String(err)]);
+  }
 }
 
 // ── Create Label ─────────────────────────────────────
@@ -223,7 +302,10 @@ async function handleRate(env: Env, cfg: SpeedeeConfig, body: any, webhookUrl: s
 async function handleCreate(env: Env, cfg: SpeedeeConfig, body: any, webhookUrl: string): Promise<Response> {
   const out: Array<Record<string, unknown>> = [];
   for (const req of asArray(body)) {
-    out.push(await createOne(env, cfg, req, webhookUrl));
+    const t0 = Date.now();
+    const entry = await createOne(env, cfg, req, webhookUrl);
+    out.push(entry);
+    await entryLog(env, 'create', req, entry, t0);
   }
   return Response.json({ data: out });
 }
@@ -431,7 +513,10 @@ function extractLabels(resp: any): string[] {
 async function handleVoid(env: Env, cfg: SpeedeeConfig, body: any): Promise<Response> {
   const out: Array<Record<string, unknown>> = [];
   for (const req of asArray(body)) {
-    out.push(await voidOne(env, cfg, req));
+    const t0 = Date.now();
+    const entry = await voidOne(env, cfg, req);
+    out.push(entry);
+    await entryLog(env, 'void', req, entry, t0);
   }
   return Response.json({ data: out });
 }
@@ -513,14 +598,16 @@ async function handleEod(env: Env, cfg: SpeedeeConfig, body: any): Promise<Respo
   const environment = envOf(req);
 
   if (cfg.eodMode === 'portal') {
-    return Response.json({
+    const resp = {
       encodedReport: null,
       isSuccessful: true,
       message: [
         `SpeeDee manifest for ${closeDate}: print from the ShipIt web portal (Orders -> Reports -> manifest for ship date).`,
         'Gateway manifest summary sheet is disabled pending SpeeDee Integrations approval (speedee:config eodMode).',
       ],
-    });
+    };
+    await logCall(env, { endpoint: 'eod', environment, ok: true, request: req, response: resp, message: `portal mode (${closeDate})` });
+    return Response.json(resp);
   }
 
   const { results } = await env.DB.prepare(
@@ -546,11 +633,13 @@ async function handleEod(env: Env, cfg: SpeedeeConfig, body: any): Promise<Respo
   }
 
   const pdf = buildManifestPdf(closeDate, (results || []).length, pkgCount, rows);
-  return Response.json({
+  const resp = {
     encodedReport: pdf,
     isSuccessful: true,
     message: [`gateway-generated manifest summary sheet (${(results || []).length} orders, ${pkgCount} packages) — not an official ShipIt manifest`],
-  });
+  };
+  await logCall(env, { endpoint: 'eod', environment, ok: true, request: req, response: resp, message: `summary sheet: ${(results || []).length} orders / ${pkgCount} pkgs (${closeDate})` });
+  return Response.json(resp);
 }
 
 // Minimal hand-rolled PDF (Courier text rows) — keeps CPU tiny on the Workers
@@ -618,6 +707,7 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
       `UPDATE speedee_orders SET status='VOIDED', updated_at=datetime('now') WHERE speedee_order_id = ?`
     ).bind(String(orderId)).run();
   }
+  await logCall(env, { endpoint: 'webhook', speedeeOrderId: orderId ? String(orderId) : null, ok: true, request: payload, message: status || 'webhook received' });
   // Logiwa tracks its own custom-carrier shipments; nothing to forward today.
   return Response.json({ ok: true });
 }

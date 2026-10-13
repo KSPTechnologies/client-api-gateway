@@ -9,9 +9,10 @@ import Sftp from './pages/Sftp';
 import Aftership from './pages/Aftership';
 import ShippingRules from './pages/ShippingRules';
 import OrderMirror from './pages/OrderMirror';
+import Speedee from './pages/Speedee';
 import './App.css';
 
-type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership' | 'shipping-rules' | 'order-mirror';
+type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership' | 'shipping-rules' | 'order-mirror' | 'speedee';
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -33,6 +34,7 @@ function App() {
           <li className={page === 'aftership' ? 'active' : ''} onClick={() => setPage('aftership')}>AfterShip</li>
           <li className={page === 'shipping-rules' ? 'active' : ''} onClick={() => setPage('shipping-rules')}>Shipping Rules</li>
           <li className={page === 'order-mirror' ? 'active' : ''} onClick={() => setPage('order-mirror')}>Order Mirror</li>
+          <li className={page === 'speedee' ? 'active' : ''} onClick={() => setPage('speedee')}>SpeeDee</li>
         </ul>
       </nav>
       <main className="content">
@@ -46,6 +48,7 @@ function App() {
         {page === 'aftership' && <Aftership />}
         {page === 'shipping-rules' && <ShippingRules />}
         {page === 'order-mirror' && <OrderMirror />}
+        {page === 'speedee' && <Speedee />}
       </main>
     </div>
   );
