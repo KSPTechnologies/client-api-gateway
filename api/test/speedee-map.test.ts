@@ -145,7 +145,8 @@ describe('config merge', () => {
     expect(merged.paths.getItems).toBe('/api/v2/items/{orderId}');
     expect(merged.paths.quote).toBe('/api/v1/orders/quote');
     expect(merged.mockMode).toBe(true);
-    expect(merged.serviceMap['LTL'].vehicleTypeId).toBe('SEMITRAILER_53TANDEMAXELTRACTOR');
+    expect(merged.serviceMap['LTL'].serviceLevelId).toBe('LTL_NEXTDAYPU');
+    expect(merged.serviceMap['LTL'].vehicleTypeId).toBeNull(); // platform defaults the vehicle
   });
 });
 
