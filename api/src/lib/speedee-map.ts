@@ -11,7 +11,9 @@
 export interface SpeedeeConfig {
   displayName: string;
   /** Logiwa shippingOption (uppercased) -> service/vehicle pair. '*' = default. */
-  serviceMap: Record<string, { serviceLevelId: string; vehicleTypeId: string }>;
+  /** vehicleTypeId null/omitted = let the platform pick the service's default
+   *  vehicle (live-verified: quotes echo the chosen vehicle back). */
+  serviceMap: Record<string, { serviceLevelId: string; vehicleTypeId?: string | null }>;
   /** Logiwa package/carrier-package type (uppercased) -> SpeeDee parcelTypeId. '*' = default. */
   parcelTypeMap: Record<string, string>;
   hazmatParcelTypeId: string;
@@ -48,7 +50,10 @@ export const DEFAULT_SPEEDEE_CONFIG: SpeedeeConfig = {
   serviceMap: {
     '*': { serviceLevelId: 'PACKAGE_PARCEL', vehicleTypeId: 'STEPVAN' },
     'GROUND': { serviceLevelId: 'PACKAGE_PARCEL', vehicleTypeId: 'STEPVAN' },
-    'LTL': { serviceLevelId: 'LTL_NEXTDAYPU', vehicleTypeId: 'SEMITRAILER_53TANDEMAXELTRACTOR' },
+    // The documented semi vehicle id is invalid on SpeeDee's live tenant
+    // ("Invalid Service Level/Vehicle combination") — omit and let the
+    // platform default when/if LTL is enabled on the account.
+    'LTL': { serviceLevelId: 'LTL_NEXTDAYPU', vehicleTypeId: null },
   },
   parcelTypeMap: { '*': 'BOX' },
   hazmatParcelTypeId: 'ANY_SIZE_BOX_HZ',
@@ -259,7 +264,7 @@ export function buildSpeedeeBody(req: any, cfg: SpeedeeConfig, webhookUrl: strin
 
   const body: Record<string, unknown> = {
     serviceLevelId: svc.serviceLevelId,
-    vehicleTypeId: svc.vehicleTypeId,
+    ...(svc.vehicleTypeId ? { vehicleTypeId: svc.vehicleTypeId } : {}),
     readyAt,
     pickupAddress: { ...mapAddress(shipFrom?.address), company: shipFrom?.contact?.companyName ?? null },
     pickupContactInfo: mapContact(shipFrom),

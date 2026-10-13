@@ -148,3 +148,19 @@ describe('config merge', () => {
     expect(merged.serviceMap['LTL'].vehicleTypeId).toBe('SEMITRAILER_53TANDEMAXELTRACTOR');
   });
 });
+
+describe('vehicle omission', () => {
+  it('null vehicleTypeId in serviceMap -> field omitted (platform defaults it)', () => {
+    const merged = mergeConfig({ serviceMap: { 'LTLX': { serviceLevelId: 'LTL_NEXTDAYPU', vehicleTypeId: null } } as any });
+    const req = JSON.parse(JSON.stringify({
+      shipmentOrderIdentifier: 'x', shipmentOrderCode: 'X1', shippingOption: 'LTLX',
+      shipFrom: { address: { AddressLine1: 'a', City: 'c', StateOrProvinceCode: 'MN', PostalCode: '55445', CountryCode: 'US' } },
+      shipTo: { address: { AddressLine1: 'b', City: 'd', StateOrProvinceCode: 'ND', PostalCode: '58102', CountryCode: 'US' } },
+      requestedPackageLineItems: [{ weight: { Value: 5, Units: 'LB' } }],
+    }));
+    const { body } = buildSpeedeeBody(req, merged, null);
+    expect(body).not.toBeNull();
+    expect('vehicleTypeId' in body!).toBe(false);
+    expect(body!.serviceLevelId).toBe('LTL_NEXTDAYPU');
+  });
+});
