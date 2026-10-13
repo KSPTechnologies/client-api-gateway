@@ -2,6 +2,7 @@ import { Env } from '../index';
 import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipments, queryInventory, logiwaFetch, LogiwaCredentials } from './logiwa';
 import { syncSftpInbound, syncSftpConfirmations } from './sftp';
 import { pushAfterShipTrackings } from './aftership';
+import { syncOrderMirror } from './order-mirror';
 
 // Heartbeat wrapper: records each cron's last run + outcome in cron_runs so the
 // portal can show whether jobs are alive. Errors are recorded (better visibility
@@ -35,6 +36,10 @@ export async function handleScheduled(
 ): Promise<void> {
   switch (event.cron) {
     case '*/15 * * * *':
+      // Logiwa order mirror BEFORE tracking-sync so freshly imported orders
+      // (incl. already-shipped ones inside the lookback) get swept + flipped
+      // in this same pass. Separate heartbeat; isolated failure.
+      await recordRun(env, 'order-mirror', () => syncOrderMirror(env));
       await recordRun(env, 'tracking-sync', async () => {
         // Cheap detector first: one list call per environment finds anything
         // that shipped recently and nudges matching orders to the front of the

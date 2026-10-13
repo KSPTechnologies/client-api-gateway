@@ -25,7 +25,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   if (q) { where += ' AND (o.external_order_id LIKE ? OR o.id LIKE ? OR o.logiwa_order_id LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   if (source === 'sftp') where += ' AND sf.id IS NOT NULL';
   else if (source === 'zoho') where += ' AND z.id IS NOT NULL';
-  else if (source === 'api') where += ' AND sf.id IS NULL AND z.id IS NULL';
+  else if (source === 'logiwa') where += ' AND sf.id IS NULL AND z.id IS NULL AND o.request_payload_key IS NULL';
+  else if (source === 'api') where += ' AND sf.id IS NULL AND z.id IS NULL AND o.request_payload_key IS NOT NULL';
 
   const fromClause = `FROM orders o
     JOIN tenants t ON o.tenant_id = t.id
@@ -35,7 +36,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const orderSelect = `SELECT o.id, o.tenant_id, o.external_order_id, o.logiwa_order_id, o.status,
     o.environment, o.created_at, o.updated_at, t.name as tenant_name,
     'order' as record_type,
-    CASE WHEN sf.id IS NOT NULL THEN 'sftp' WHEN z.id IS NOT NULL THEN 'zoho' ELSE 'api' END as source,
+    CASE WHEN sf.id IS NOT NULL THEN 'sftp' WHEN z.id IS NOT NULL THEN 'zoho'
+         WHEN o.request_payload_key IS NULL THEN 'logiwa' ELSE 'api' END as source,
     sf.file_name as sftp_file, sf.status as sftp_status, sf.confirmation_key as sftp_confirmation,
     z.zoho_record_id as zoho_record, z.writeback_status as zoho_writeback,
     COALESCE(sf.last_error, z.last_error,
@@ -56,7 +58,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   if (status) { poWhere += ' AND p.status = ?'; poParams.push(status); }
   if (q) { poWhere += ' AND (p.external_code LIKE ? OR p.id LIKE ? OR p.logiwa_po_id LIKE ?)'; poParams.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   if (source === 'sftp') poWhere += ' AND sf.id IS NOT NULL';
-  else if (source === 'zoho') poWhere += ' AND 1=0';
+  else if (source === 'zoho' || source === 'logiwa') poWhere += ' AND 1=0';
   else if (source === 'api') poWhere += ' AND sf.id IS NULL';
 
   const poFromClause = `FROM purchase_orders p

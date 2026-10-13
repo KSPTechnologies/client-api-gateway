@@ -9,7 +9,7 @@ interface Order {
   logiwa_order_id: string | null;
   status: string;
   record_type: 'order' | 'po';
-  source: 'api' | 'sftp' | 'zoho';
+  source: 'api' | 'sftp' | 'zoho' | 'logiwa';
   sftp_file: string | null;
   sftp_confirmation: string | null;
   zoho_record: string | null;
@@ -36,6 +36,7 @@ const SOURCE_STYLE: Record<string, { bg: string; fg: string }> = {
   api: { bg: '#e3f2fd', fg: '#1565c0' },
   sftp: { bg: '#ede7f6', fg: '#5e35b1' },
   zoho: { bg: '#fff3e0', fg: '#e65100' },
+  logiwa: { bg: '#e8f5e9', fg: '#2e7d32' },
 };
 
 function SourceBadge({ source }: { source: string }) {
@@ -116,6 +117,7 @@ export default function Orders() {
             <option value="api">API</option>
             <option value="sftp">SFTP</option>
             <option value="zoho">Zoho</option>
+            <option value="logiwa">Logiwa (mirrored)</option>
           </select>
           <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}>
             <option value="">All Statuses</option>
