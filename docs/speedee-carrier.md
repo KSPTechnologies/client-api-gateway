@@ -103,22 +103,33 @@ Postman Documenter page, NOT the API host):
   `dropoffWindow{start,end}`; subscriptions/webhooks API exists
   (`/api/v1/subscriptions`) as an alternative to per-order `webhookUrl`.
 
+**RESOLVED (2026-10-16, live integration tests all passed):**
+- **Test base URL: `https://speedeetest.dsapp.io/integration`** (ShipIt is
+  white-label **Dispatch Science**; the `/integration` prefix is required —
+  bare `/api/v1/...` 404s). Stored in KV `speedee:env:test`.
+- **Tom's login IS the API Basic auth** (account 90088P / id 18567, role
+  SelfServeAdministrator) — TEST environment. ⚠️ When Tom changes his portal
+  password at speedeetest.dsapp.io, the API credential changes with it →
+  **update KV `speedee:env:test` immediately or the adapter breaks.**
+- **Format `0` = ZPL confirmed** (downloaded real ZPL labels).
+- **Live-verified through the gateway:** rate ($8.40 quote, bucketing correct),
+  create → SD442194 w/ real tracking + 7.6KB ZPL label, idempotent replay,
+  void + idempotent re-void, 3-package create (sequential trackings),
+  hazmat ($32.87 accessorials priced), AOD ADULT ($15.71 fee), EOD portal
+  mode. All test orders voided after.
+
 **Still open:**
-1. **The API base URL** — the collection never resolves `{{baseUrl}}`;
-   api.speedeeshipit.com is only the docs CDN (rejects POST). Ask SpeeDee
-   Integrations for test + production base URLs.
-2. Whether Tom's ShipIt login (`tom.loeffler@ksp3pl.com`) doubles as API Basic-auth
-   credentials, and whether it's test, prod, or both.
-3. **Label format id** — example shows `format=0`; confirm `0` = ZPL.
-4. **Logiwa token request format** — endpoint accepts HTTP Basic, form-urlencoded,
-   and JSON; logs `shape=` on each call. Watch the first real call and prune.
-5. **DECLAREDVALUE quantity semantics** (dollars vs $100 units) — config switch.
-6. **Logiwa confirmation enum values** — config map; verify against real payloads.
-7. **Return labels** — default: normal order with Logiwa's already-reversed
+1. **Production base URL + credentials** — ask SpeeDee Integrations at prod
+   onboarding (likely a separate dsapp.io tenant).
+2. **Logiwa token request format** — endpoint accepts HTTP Basic, form-urlencoded,
+   and JSON; logs `shape=` on each call. Watch the first real Logiwa call and prune.
+3. **DECLAREDVALUE quantity semantics** (dollars vs $100 units) — config switch.
+4. **Logiwa confirmation enum values** — config map; verify against real payloads.
+5. **Return labels** — default: normal order with Logiwa's already-reversed
    addresses. `useReturnEndpoint: true` switches to `POST /orders/return` when the
    original SpeeDee order is known.
-8. **EOD approval** — summary sheet built but off until SpeeDee approves.
-9. **Reference max length** (assumed 30).
+6. **EOD approval** — summary sheet built but off until SpeeDee approves.
+7. **Reference max length** (assumed 30).
 
 ## 5. Not supported (by SpeeDee or by design)
 
