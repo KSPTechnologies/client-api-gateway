@@ -102,17 +102,22 @@ describe('US-only + validation', () => {
 });
 
 describe('cost bucketing', () => {
-  it('Delivery+ITEMPRICE+SHIPMENTWEIGHT = shipping; rest = other', () => {
+  it('confirmed ShipIt charge shape: Delivery type + Extra extraFeeTypeId', () => {
     const b = bucketCharges([
-      { chargeId: 'DELIVERY', price: 8.5 },
-      { chargeId: 'ITEMPRICE', price: 1.0 },
-      { chargeId: 'SHIPMENTWEIGHT', price: 0.5 },
-      { chargeId: 'AODSIGNATURE', price: 3.25 },
-      { chargeId: 'DAS', price: 1.75 },
+      { type: 'Delivery', price: 8.5, fromZone: 1, toZone: 3 },
+      { type: 'Extra', price: 1.0, quantity: 1, extraFeeTypeId: 'ITEMPRICE' },
+      { type: 'Extra', price: 0.5, quantity: 1, extraFeeTypeId: 'SHIPMENTWEIGHT' },
+      { type: 'Extra', price: 3.25, quantity: 1, extraFeeTypeId: 'AODSIGNATURE' },
+      { type: 'Extra', price: 1.75, quantity: 1, extraFeeTypeId: 'DAS' },
     ], cfg);
     expect(b.totalCost).toBe(15);
     expect(b.shippingCost).toBe(10);
     expect(b.otherCost).toBe(5);
+  });
+  it('legacy chargeId shape still buckets', () => {
+    const b = bucketCharges([{ chargeId: 'DELIVERY', price: 10 }, { chargeId: 'DAS', price: 2 }], cfg);
+    expect(b.shippingCost).toBe(10);
+    expect(b.otherCost).toBe(2);
   });
 });
 

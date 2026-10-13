@@ -67,6 +67,10 @@ export const DEFAULT_SPEEDEE_CONFIG: SpeedeeConfig = {
   pollBudgetMs: 11_000,
   pollBackoffMs: [300, 500, 1000],
   mockMode: false,
+  // Paths CONFIRMED against the published ShipIt Postman collection (Oct 2026):
+  // cancel = DELETE /orders/{orderId}; delete items = DELETE /orders/{orderId}/items
+  // with a bare JSON array of itemIds; labels JSON = .../items/label/{templateId}/{format}
+  // (example values: templateId "Standard", format "0").
   paths: {
     createOrder: '/api/v1/orders',
     quote: '/api/v1/orders/quote',
@@ -74,9 +78,9 @@ export const DEFAULT_SPEEDEE_CONFIG: SpeedeeConfig = {
     returnOrder: '/api/v1/orders/return',
     getOrder: '/api/v1/orders/{orderId}',
     getItems: '/api/v1/orders/{orderId}/items',
-    labelsJson: '/api/v1/orders/{orderId}/labels',
-    cancelOrder: '/api/v1/orders/{orderId}/cancel',
-    deleteItems: '/api/v1/orders/{orderId}/items/delete',
+    labelsJson: '/api/v1/orders/{orderId}/items/label/Standard/0',
+    cancelOrder: '/api/v1/orders/{orderId}',
+    deleteItems: '/api/v1/orders/{orderId}/items',
   },
   useReturnEndpoint: false,
 };
@@ -280,6 +284,13 @@ export interface RateBuckets {
   otherCost: number;
 }
 
+/** Confirmed charge shape: {type:"Delivery", price, fromZone, toZone} and
+ *  {type:"Extra", price, quantity, extraFeeTypeId:"DAS"|...}. */
+export function chargeId(c: any): string {
+  if (String(c?.type ?? '').toLowerCase() === 'delivery') return 'DELIVERY';
+  return String(c?.extraFeeTypeId ?? c?.chargeId ?? c?.id ?? c?.name ?? '').toUpperCase();
+}
+
 export function bucketCharges(charges: any[], cfg: SpeedeeConfig): RateBuckets {
   let total = 0;
   let shipping = 0;
@@ -288,8 +299,7 @@ export function bucketCharges(charges: any[], cfg: SpeedeeConfig): RateBuckets {
     const price = Number(c?.price ?? c?.amount ?? 0);
     if (!isFinite(price)) continue;
     total += price;
-    const id = String(c?.chargeId ?? c?.id ?? c?.name ?? '').toUpperCase();
-    if (shipIds.includes(id)) shipping += price;
+    if (shipIds.includes(chargeId(c))) shipping += price;
   }
   const r2 = (n: number) => Math.round(n * 100) / 100;
   return { totalCost: r2(total), shippingCost: r2(shipping), otherCost: r2(total - shipping) };

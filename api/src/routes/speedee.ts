@@ -3,7 +3,7 @@ import {
   getSpeedeeConfig, getSpeedeeCreds, speedee, SpeedeeEnv, SpeedeeError, SpeedeeCreds,
 } from '../lib/speedee';
 import {
-  SpeedeeConfig, buildSpeedeeBody, bucketCharges, businessDaysBetween, isTemporaryTracking,
+  SpeedeeConfig, buildSpeedeeBody, bucketCharges, chargeId, businessDaysBetween, isTemporaryTracking,
 } from '../lib/speedee-map';
 
 /**
@@ -381,8 +381,10 @@ async function createOne(env: Env, cfg: SpeedeeConfig, req: any, webhookUrl: str
     let backoffIdx = 0;
     for (;;) {
       const itemsResp = await speedee.getItems(creds, cfg, orderId);
-      items = itemsResp?.items ?? itemsResp?.data ?? (Array.isArray(itemsResp) ? itemsResp : []);
-      const pending = items.filter((it: any) => isTemporaryTracking(it?.trackingNumber ?? it?.tracking));
+      items = Array.isArray(itemsResp) ? itemsResp : (itemsResp?.items ?? itemsResp?.data ?? []);
+      // Confirmed item shape: { itemId, itemNumber, barcode, ... } — barcode IS
+      // the tracking number; temporary = bare item number until async assign.
+      const pending = items.filter((it: any) => isTemporaryTracking(trackingOf(it)));
       if (items.length > 0 && pending.length === 0) break;
       if (Date.now() - started > cfg.pollBudgetMs) {
         try { await speedee.cancelOrder(creds, cfg, orderId); } catch { /* best-effort */ }
@@ -393,10 +395,10 @@ async function createOne(env: Env, cfg: SpeedeeConfig, req: any, webhookUrl: str
       await sleep(wait);
     }
 
-    // Labels (ZPL, STANDARD 4x6)
+    // Labels (ZPL, Standard 4x6)
     const labelsResp = await speedee.labelsJson(creds, cfg, orderId);
     const labels = extractLabels(labelsResp);
-    if (labels.length === 0) {
+    if (labels.list.length === 0) {
       try { await speedee.cancelOrder(creds, cfg, orderId); } catch { /* best-effort */ }
       await upsertOrder(env, soId, soCode, orderId, environment, 'FAILED', null, null, null, null);
       return fail(req, ['SpeeDee returned no labels']);
@@ -415,21 +417,22 @@ async function createOne(env: Env, cfg: SpeedeeConfig, req: any, webhookUrl: str
       } catch { warnings.push('pricing unavailable (order charges and fallback quote both failed)'); }
     }
     const buckets = bucketCharges(charges, cfg);
-    const zone = (charges || []).find((ch: any) =>
-      String(ch?.chargeId ?? ch?.id ?? '').toUpperCase() === 'DELIVERY')?.toZone ?? null;
+    const zone = (charges || []).find((ch: any) => chargeId(ch) === 'DELIVERY')?.toZone ?? null;
 
     // Build per-package responses, storing each ZPL in R2.
     const reqPkgs: any[] = Array.isArray(req?.requestedPackageLineItems) ? req.requestedPackageLineItems : [];
     const perPkgCost = reqPkgs.length > 0 ? round2(buckets.totalCost / reqPkgs.length) : buckets.totalCost;
-    const packages: Array<{ sequence: number; trackingNumber: string; labelKey: string }> = [];
+    const packages: Array<{ sequence: number; trackingNumber: string; itemId: string | null; labelKey: string }> = [];
     const packageResponse: Array<Record<string, unknown>> = [];
 
     for (let i = 0; i < items.length; i++) {
-      const tracking = String(items[i]?.trackingNumber ?? items[i]?.tracking ?? '');
-      const zplB64 = labels[i] ?? labels[0];
+      const tracking = trackingOf(items[i]);
+      // Labels JSON entries carry itemBarcode — match label to item by barcode,
+      // falling back to list order.
+      const zplB64 = labels.byBarcode.get(tracking) ?? labels.list[i] ?? labels.list[0];
       const labelKey = `speedee/${environment}/${orderId}/label-${i}.zpl`;
       try { await env.R2.put(labelKey, Uint8Array.from(atob(zplB64), (ch) => ch.charCodeAt(0))); } catch { /* non-fatal */ }
-      packages.push({ sequence: i, trackingNumber: tracking, labelKey });
+      packages.push({ sequence: i, trackingNumber: tracking, itemId: items[i]?.itemId ?? null, labelKey });
       packageResponse.push({
         packageSequenceNumber: reqPkgs[i]?.packageSequenceNumber ?? i + 1,
         trackingNumber: tracking,
@@ -494,18 +497,26 @@ function upsertOrder(
   ).bind(crypto.randomUUID(), soId, soCode, orderId, environment, status, masterTracking, packages, charges, responseJson).run();
 }
 
-/** Accept the label-download response in any plausible shape; return base64 ZPLs. */
-function extractLabels(resp: any): string[] {
-  const list = resp?.labels ?? resp?.data ?? (Array.isArray(resp) ? resp : []);
-  const out: string[] = [];
-  for (const l of list) {
-    const raw = l?.zpl ?? l?.label ?? l?.data ?? l?.content ?? (typeof l === 'string' ? l : null);
+function trackingOf(item: any): string {
+  return String(item?.barcode ?? item?.trackingNumber ?? item?.tracking ?? '');
+}
+
+/** Confirmed Labels JSON shape: { labels: [{ itemId, itemBarcode, encodedLabel }] }
+ *  (encodedLabel is already base64 ZPL). Kept tolerant of variants. */
+function extractLabels(resp: any): { list: string[]; byBarcode: Map<string, string> } {
+  const entries = resp?.labels ?? resp?.data ?? (Array.isArray(resp) ? resp : []);
+  const list: string[] = [];
+  const byBarcode = new Map<string, string>();
+  for (const l of entries) {
+    const raw = l?.encodedLabel ?? l?.zpl ?? l?.label ?? l?.data ?? l?.content ?? (typeof l === 'string' ? l : null);
     if (!raw) continue;
     const s = String(raw);
-    // ZPL starts with ^XA; base64 of it starts with XlhB. Encode raw ZPL.
-    out.push(s.startsWith('^') ? btoa(s) : s);
+    const b64 = s.startsWith('^') ? btoa(s) : s; // raw ZPL starts ^XA; else already base64
+    list.push(b64);
+    const bc = l?.itemBarcode ?? l?.barcode ?? null;
+    if (bc) byBarcode.set(String(bc), b64);
   }
-  return out;
+  return { list, byBarcode };
 }
 
 // ── Void ─────────────────────────────────────────────
@@ -565,8 +576,18 @@ async function voidOne(env: Env, cfg: SpeedeeConfig, req: any): Promise<Record<s
     if (pkgRef && pkgs.length > 1) {
       const target = pkgs.find((p) => String(p.trackingNumber) === String(pkgRef) || String(p.sequence) === String(pkgRef));
       if (target) {
-        await speedee.deleteItems(creds, cfg, orderId, [target.trackingNumber]);
-        return respond(true, [`package ${pkgRef} removed from SpeeDee order ${orderId}`]);
+        // Delete-items takes itemId GUIDs (confirmed); resolve via live items if
+        // our stored row predates itemId tracking.
+        let itemId: string | null = target.itemId ?? null;
+        if (!itemId) {
+          const itemsResp = await speedee.getItems(creds, cfg, orderId);
+          const items: any[] = Array.isArray(itemsResp) ? itemsResp : (itemsResp?.items ?? []);
+          itemId = items.find((it) => trackingOf(it) === String(target.trackingNumber))?.itemId ?? null;
+        }
+        if (itemId) {
+          await speedee.deleteItems(creds, cfg, orderId, [itemId]);
+          return respond(true, [`package ${pkgRef} removed from SpeeDee order ${orderId}`]);
+        }
       }
     }
 

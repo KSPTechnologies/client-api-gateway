@@ -87,25 +87,38 @@ live without a deploy.
 - **Mock mode** (config `mockMode`): `FAIL` / `400` / `TIMEOUT15` in shipmentOrderCode
   mirror Logiwa's test triggers without touching SpeeDee.
 
-## 4. Open questions / assumptions (resolve against the Postman collection + SpeeDee Integrations)
+## 4. Open questions / assumptions
 
-1. **Logiwa token request format** — token endpoint accepts HTTP Basic,
-   form-urlencoded (client_id/client_secret), and JSON; logs `shape=` on each call.
-   Watch the first real call and prune.
-2. **Unconfirmed ShipIt paths** (best-guess defaults, overridable in `speedee:config.paths`):
-   get order `GET /api/v1/orders/{id}`, get items `GET .../items`, labels JSON
-   `GET .../labels?template=STANDARD`, cancel `POST .../cancel`, delete items
-   `POST .../items/delete`. Known-good: `POST /api/v1/orders`, `/orders/quote`,
-   `/orders/search`, `/orders/return?sourceOrderId=`.
-3. **Label/items/search response shapes** — parsed defensively (several plausible
-   field names); verify against real test responses.
-4. **DECLAREDVALUE quantity semantics** (dollars vs $100 units) — config switch.
-5. **Logiwa confirmation enum values** — config map; verify against real payloads.
-6. **Return labels** — default: normal order with Logiwa's already-reversed
+**CONFIRMED (2026-10-16) against the published ShipIt Postman collection** (saved at
+`docs/shipit-postman-collection.json`; docs site = https://api.speedeeshipit.com — a
+Postman Documenter page, NOT the API host):
+- Cancel = `DELETE /api/v1/orders/{orderId}`; delete items = `DELETE .../items`
+  with a **bare JSON array of itemId GUIDs**; labels JSON =
+  `GET .../items/label/{templateId}/{format}` (example values `Standard`/`0`).
+- Items response = top-level array `[{itemId, itemNumber, barcode, ...}]` —
+  **`barcode` is the tracking number**; create response = `{"orderId":"SD3041"}`;
+  labels response = `{labels:[{itemId, itemBarcode, encodedLabel}]}` (base64 ZPL,
+  matched to packages by barcode); charges = `{type:"Delivery", price, toZone}` +
+  `{type:"Extra", price, quantity, extraFeeTypeId}`; quote includes
+  `dropoffWindow{start,end}`; subscriptions/webhooks API exists
+  (`/api/v1/subscriptions`) as an alternative to per-order `webhookUrl`.
+
+**Still open:**
+1. **The API base URL** — the collection never resolves `{{baseUrl}}`;
+   api.speedeeshipit.com is only the docs CDN (rejects POST). Ask SpeeDee
+   Integrations for test + production base URLs.
+2. Whether Tom's ShipIt login (`tom.loeffler@ksp3pl.com`) doubles as API Basic-auth
+   credentials, and whether it's test, prod, or both.
+3. **Label format id** — example shows `format=0`; confirm `0` = ZPL.
+4. **Logiwa token request format** — endpoint accepts HTTP Basic, form-urlencoded,
+   and JSON; logs `shape=` on each call. Watch the first real call and prune.
+5. **DECLAREDVALUE quantity semantics** (dollars vs $100 units) — config switch.
+6. **Logiwa confirmation enum values** — config map; verify against real payloads.
+7. **Return labels** — default: normal order with Logiwa's already-reversed
    addresses. `useReturnEndpoint: true` switches to `POST /orders/return` when the
    original SpeeDee order is known.
-7. **EOD approval** — summary sheet built but off until SpeeDee approves.
-8. **Reference max length** (assumed 30).
+8. **EOD approval** — summary sheet built but off until SpeeDee approves.
+9. **Reference max length** (assumed 30).
 
 ## 5. Not supported (by SpeeDee or by design)
 

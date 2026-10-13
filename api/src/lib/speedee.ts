@@ -112,13 +112,15 @@ export const speedee = {
     speedeeFetch(c, 'GET', sub(cfg.paths.getItems, orderId)),
 
   labelsJson: (c: SpeedeeCreds, cfg: SpeedeeConfig, orderId: string) =>
-    speedeeFetch(c, 'GET', `${sub(cfg.paths.labelsJson, orderId)}?template=STANDARD`),
+    speedeeFetch(c, 'GET', sub(cfg.paths.labelsJson, orderId)),
 
+  // Confirmed: cancel is DELETE on the order resource.
   cancelOrder: (c: SpeedeeCreds, cfg: SpeedeeConfig, orderId: string) =>
-    speedeeFetch(c, 'POST', sub(cfg.paths.cancelOrder, orderId)),
+    speedeeFetch(c, 'DELETE', sub(cfg.paths.cancelOrder, orderId)),
 
+  // Confirmed: DELETE .../items with a bare JSON array of itemIds.
   deleteItems: (c: SpeedeeCreds, cfg: SpeedeeConfig, orderId: string, itemIds: unknown[]) =>
-    speedeeFetch(c, 'POST', sub(cfg.paths.deleteItems, orderId), { itemIds }),
+    speedeeFetch(c, 'DELETE', sub(cfg.paths.deleteItems, orderId), itemIds),
 
   search: (c: SpeedeeCreds, cfg: SpeedeeConfig, body: unknown) =>
     speedeeFetch(c, 'POST', cfg.paths.search, body),
