@@ -12,9 +12,10 @@ import OrderMirror from './pages/OrderMirror';
 import Speedee from './pages/Speedee';
 import Console from './pages/Console';
 import FloorJobs from './pages/FloorJobs';
+import Productivity from './pages/Productivity';
 import './App.css';
 
-type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership' | 'shipping-rules' | 'order-mirror' | 'speedee' | 'console' | 'floor-jobs';
+type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership' | 'shipping-rules' | 'order-mirror' | 'speedee' | 'console' | 'floor-jobs' | 'productivity';
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -39,6 +40,7 @@ function App() {
           <li className={page === 'speedee' ? 'active' : ''} onClick={() => setPage('speedee')}>SpeeDee</li>
           <li className={page === 'console' ? 'active' : ''} onClick={() => setPage('console')}>API Console</li>
           <li className={page === 'floor-jobs' ? 'active' : ''} onClick={() => setPage('floor-jobs')}>Floor Jobs</li>
+          <li className={page === 'productivity' ? 'active' : ''} onClick={() => setPage('productivity')}>Productivity</li>
         </ul>
       </nav>
       <main className="content">
@@ -55,6 +57,7 @@ function App() {
         {page === 'speedee' && <Speedee />}
         {page === 'console' && <Console />}
         {page === 'floor-jobs' && <FloorJobs />}
+        {page === 'productivity' && <Productivity />}
       </main>
     </div>
   );
