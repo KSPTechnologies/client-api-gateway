@@ -56,6 +56,7 @@ const TEMPLATES: CallTemplate[] = [
 export default function Console() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tenantId, setTenantId] = useState('');
+  const [chosenEnv, setChosenEnv] = useState<'sandbox' | 'production'>('sandbox');
   const [tplIdx, setTplIdx] = useState(0);
   const [pathId, setPathId] = useState('');
   const [query, setQuery] = useState(TEMPLATES[0].query || '');
@@ -72,9 +73,16 @@ export default function Console() {
 
   const tpl = TEMPLATES[tplIdx];
   const tenant = tenants.find((t) => t.id === tenantId);
-  const env = tenant?.logiwa_environment || '';
+  const env = chosenEnv;
   const isProd = env === 'production';
   const resolvedPath = tpl.path.replace('{id}', pathId || '{id}');
+
+  const pickTenant = (id: string) => {
+    setTenantId(id);
+    setConfirming(false);
+    const t = tenants.find((x) => x.id === id);
+    setChosenEnv(t?.logiwa_environment === 'production' ? 'production' : 'sandbox');
+  };
 
   const pickTemplate = (i: number) => {
     setTplIdx(i);
@@ -105,6 +113,7 @@ export default function Console() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
+          environment: chosenEnv,
           method: tpl.method,
           path: resolvedPath,
           query: query.trim() || undefined,
@@ -159,14 +168,22 @@ export default function Console() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={{ fontSize: 13 }}>
             Act as client
-            <select value={tenantId} onChange={(e) => { setTenantId(e.target.value); setConfirming(false); }} style={{ display: 'block', minWidth: 200 }}>
+            <select value={tenantId} onChange={(e) => pickTenant(e.target.value)} style={{ display: 'block', minWidth: 200 }}>
               <option value="">Select…</option>
               {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
+          <label style={{ fontSize: 13 }}>
+            Environment
+            <select value={chosenEnv} onChange={(e) => { setChosenEnv(e.target.value as 'sandbox' | 'production'); setConfirming(false); }}
+              style={{ display: 'block', minWidth: 130, color: chosenEnv === 'production' ? '#c62828' : undefined, fontWeight: chosenEnv === 'production' ? 600 : undefined }}>
+              <option value="sandbox">sandbox</option>
+              <option value="production">production</option>
+            </select>
+          </label>
           {tenant && (
             <span className={`badge ${isProd ? 'error' : 'received'}`} style={{ marginBottom: 4 }}>
-              {env.toUpperCase()}
+              {env.toUpperCase()}{tenant.logiwa_environment !== env ? ' (override)' : ''}
             </span>
           )}
           <label style={{ fontSize: 13 }}>

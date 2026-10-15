@@ -35,6 +35,7 @@ export async function handleConsole(request: Request, env: Env): Promise<Respons
   let req: {
     tenantId?: string; method?: string; path?: string;
     query?: string; body?: unknown; operatorEmail?: string;
+    environment?: string; // optional override: 'sandbox' | 'production' (default: tenant's env)
   };
   try {
     req = await request.json();
@@ -58,12 +59,18 @@ export async function handleConsole(request: Request, env: Env): Promise<Respons
     return Response.json({ error: 'tenant not found or inactive' }, { status: 404 });
   }
 
+  // Operator-chosen environment (sandbox/production), defaulting to the
+  // tenant's current one — a client can have keys in both and query either.
+  const chosenEnv = req.environment === 'production' || req.environment === 'sandbox'
+    ? req.environment
+    : (tenantRow.logiwa_environment === 'production' ? 'production' : 'sandbox');
+
   const tenant: TenantContext = {
     tenantId: tenantRow.id,
     tenantName: tenantRow.name,
     rateLimit: 60,
     active: true,
-    environment: tenantRow.logiwa_environment === 'production' ? 'production' : 'sandbox',
+    environment: chosenEnv,
   };
 
   // Honor endpoint enforcement — a disabled endpoint 403s here exactly as it
