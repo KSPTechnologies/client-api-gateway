@@ -416,18 +416,52 @@ List your orders with pagination and filtering. Results are automatically scoped
 | `page` | 0 | Page index (starts at 0) |
 | `size` | 50 | Results per page |
 
-### LQL Filtering
+### Filtering
 
-You can filter results using Logiwa Query Language (LQL) parameters:
+Filter with `Key.operator=value` query parameters. **Never pull the full order list
+on a schedule — filter by date.** The two patterns most integrations need:
 
 ```
-GET /v1/orders?page=1&size=50&Code.eq=ORD-001
-GET /v1/orders?page=1&size=50&Status.eq=5
-GET /v1/orders?page=1&size=50&CreatedDateTime.bt=2026-01-01,2026-01-31
-GET /v1/orders?page=1&size=50&ActualShipmentDate.bt=2026-03-01,2026-03-31
+# Orders created in a date range
+GET /v1/orders?CreatedDateTime.bt=2026-10-01,2026-10-15
+
+# Orders CHANGED since a date (new, shipped, cancelled — anything updated):
+# poll this with your last sync time to pick up all changes incrementally
+GET /v1/orders?UpdatedDateTime.bt=2026-10-14,2026-10-16
 ```
 
-LQL operators: `eq` (equals), `gt` (greater than), `gte` (greater or equal), `lt` (less than), `lte` (less or equal), `bt` (between, inclusive).
+Supported filter keys:
+
+| Key | Type | Operators |
+|-----|------|-----------|
+| `Code` | string | `eq` |
+| `Identifier` | guid | `eq` |
+| `Sku` | string | `eq` |
+| `UpdatedDateTime` | date | `bt` |
+| `CreatedDateTime` | date | `bt` |
+| `ShipmentOrderDate` | date | `bt` |
+| `ExpectedShipmentDate` | date | `bt` |
+| `ActualShipmentDate` | date | `bt` |
+| `Status` | numeric | `eq`, `in` |
+| `ChannelOrderNumber` | string | `eq` |
+| `ShipmentOrderTypeName` | string | `eq` |
+| `PO` | string | `eq`, `in` |
+| `CustomFieldTextBox1–3` | string | `eq`, `in` |
+| `CustomFieldDateTime1–3` | date | `bt` |
+| `CustomFieldToggle1–2` | bool | `eq` |
+| `CustomFieldDropDown1–2` | string | `eq`, `in` |
+
+Operator syntax: `eq` (equals), `in` (comma-separated list), `bt` (between — two
+dates separated by a comma, inclusive). More examples:
+
+```
+GET /v1/orders?Code.eq=ORD-001
+GET /v1/orders?Status.in=5,20
+GET /v1/orders?ActualShipmentDate.bt=2026-03-01,2026-03-31&page=1&size=100
+```
+
+`ClientIdentifier` and `WarehouseIdentifier` are controlled by the gateway and
+ignored if supplied — results are always scoped to your account only.
 
 ### Example Response
 

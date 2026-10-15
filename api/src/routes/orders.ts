@@ -1,7 +1,7 @@
 import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { badRequest, methodNotAllowed, notFound } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, getShipmentOrder, LogiwaCredentials } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, getShipmentOrder, buildListFilters, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
 import { normalizeStatesInPayload } from '../lib/state-codes';
 import { resolveMissingPackTypes } from '../lib/packtype';
@@ -64,17 +64,9 @@ export async function handleOrders(
     const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
     const size = parseInt(url.searchParams.get('size') || '50');
 
-    // Build filters — always inject client identifier for tenant scoping
-    const filters: Record<string, string> = {};
-    if (creds.clientIdentifier) {
-      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
-    }
-    // Pass through any LQL filters from the client's query string
-    for (const [key, value] of url.searchParams) {
-      if (key !== 'page' && key !== 'size') {
-        filters[key] = value;
-      }
-    }
+    // LQL passthrough with gateway-enforced tenant scoping (reserved keys
+    // stripped; our ClientIdentifier injected last — not overridable).
+    const filters = buildListFilters(url, creds.clientIdentifier);
 
     try {
       const result = await listShipmentOrders(creds, page, size, filters);

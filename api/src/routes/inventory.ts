@@ -2,7 +2,7 @@ import { Env } from '../index';
 import { TenantContext } from '../auth';
 import { inventoryQuerySchema } from '../lib/validate';
 import { badRequest, methodNotAllowed } from '../lib/errors';
-import { getLogiwaCredentials, getTenantLogiwaConfig, queryInventory, LogiwaCredentials } from '../lib/logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, queryInventory, buildListFilters, LogiwaCredentials } from '../lib/logiwa';
 import { ApiError } from '../lib/errors';
 
 async function logiwaFetchDirect(
@@ -60,15 +60,9 @@ export async function handleInventory(
     const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
     const size = parseInt(url.searchParams.get('size') || '100');
 
-    const filters: Record<string, string> = {};
-    if (creds.clientIdentifier) {
-      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
-    }
-    for (const [key, value] of url.searchParams) {
-      if (key !== 'page' && key !== 'size') {
-        filters[key] = value;
-      }
-    }
+    // LQL passthrough with gateway-enforced tenant scoping (reserved keys
+    // stripped; our ClientIdentifier injected last — not overridable).
+    const filters = buildListFilters(url, creds.clientIdentifier);
 
     try {
       const filterParams = new URLSearchParams(filters);
@@ -100,17 +94,9 @@ export async function handleInventory(
     const page = Math.max(0, parseInt(url.searchParams.get('page') || '1') - 1);
     const size = parseInt(url.searchParams.get('size') || '200');
 
-    // Build filters — always inject client identifier for tenant scoping
-    const filters: Record<string, string> = {};
-    if (creds.clientIdentifier) {
-      filters['ClientIdentifier.eq'] = creds.clientIdentifier;
-    }
-    // Pass through any LQL filters from the client's query string
-    for (const [key, value] of url.searchParams) {
-      if (key !== 'page' && key !== 'size') {
-        filters[key] = value;
-      }
-    }
+    // LQL passthrough with gateway-enforced tenant scoping (reserved keys
+    // stripped; our ClientIdentifier injected last — not overridable).
+    const filters = buildListFilters(url, creds.clientIdentifier);
 
     try {
       const filterParams = new URLSearchParams(filters);

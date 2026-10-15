@@ -458,3 +458,29 @@ export async function deleteWebhook(
   const result = await logiwaFetch(creds, 'DELETE', `/v3.1/Webhook/${subscriptionId}`);
   return result?.value === true;
 }
+
+/**
+ * Build Logiwa list filters from a gateway request's query string.
+ * Everything except page/size passes through as an LQL filter (e.g.
+ * UpdatedDateTime.bt, Code.eq, Status.in) — BUT tenant scoping is
+ * gateway-controlled: client-supplied ClientIdentifier / WarehouseIdentifier
+ * keys are stripped and ours is injected LAST, so a caller can never widen
+ * the query beyond their own client. (Fixed Oct 2026: previously a supplied
+ * ClientIdentifier.eq could override the injected scoping.)
+ */
+export function buildListFilters(url: URL, clientIdentifier?: string): Record<string, string> {
+  const filters: Record<string, string> = {};
+  for (const [key, value] of url.searchParams) {
+    const k = key.toLowerCase();
+    if (k === 'page' || k === 'size') continue;
+    if (k.startsWith('clientidentifier') || k.startsWith('warehouseidentifier')) {
+      console.log(`[filters] stripped reserved query key: ${key}`);
+      continue;
+    }
+    filters[key] = value;
+  }
+  if (clientIdentifier) {
+    filters['ClientIdentifier.eq'] = clientIdentifier;
+  }
+  return filters;
+}
