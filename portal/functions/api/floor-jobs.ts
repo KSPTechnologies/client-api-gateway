@@ -77,7 +77,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     interface JobAgg {
       jobCode: string; jobStatus: string; jobType: string; client: string;
       pending: number; completed: number; otherStatus: Record<string, number>;
-      taskTypes: Record<string, number>; orders: Map<string, string | null>; assignees: Set<string>;
+      taskTypes: Record<string, number>;
+      progress: Record<string, { pending: number; completed: number; other: number }>;
+      orders: Map<string, string | null>; assignees: Set<string>;
       earliestStart: string | null; waves: Set<string>;
     }
     const jobs = new Map<string, JobAgg>();
@@ -88,7 +90,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         j = {
           jobCode: code, jobStatus: t.warehouseJobStatusName || '?',
           jobType: t.jobTypeName || '(untyped)', client: t.clientDisplayName || '',
-          pending: 0, completed: 0, otherStatus: {}, taskTypes: {}, orders: new Map(),
+          pending: 0, completed: 0, otherStatus: {}, taskTypes: {}, progress: {}, orders: new Map(),
           assignees: new Set(), earliestStart: null, waves: new Set(),
         };
         jobs.set(code, j);
@@ -97,8 +99,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       if (st === 'Pending') j.pending++;
       else if (st === 'Completed') j.completed++;
       else j.otherStatus[st] = (j.otherStatus[st] || 0) + 1;
+      // Per-task-type progress (a "task" is one line/each of one type, so a
+      // 3-line order shows Picking 3 + Packing 3 — count them separately).
       const tt = t.warehouseTaskTypeName || '?';
       j.taskTypes[tt] = (j.taskTypes[tt] || 0) + 1;
+      const prog = (j.progress[tt] = j.progress[tt] || { pending: 0, completed: 0, other: 0 });
+      if (st === 'Pending') prog.pending++;
+      else if (st === 'Completed') prog.completed++;
+      else prog.other++;
       if (t.shipmentOrderCode) {
         // UUID (shipmentOrderIdentifier) is what external systems like Locus
         // receive — keep it alongside the code for cross-referencing.
@@ -128,6 +136,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         jobCode: j.jobCode, jobStatus: j.jobStatus, client: j.client,
         pending: j.pending, completed: j.completed, otherStatus: j.otherStatus,
         taskTypes: j.taskTypes,
+        progress: j.progress,
         orders: [...j.orders.entries()].map(([code, uuid]) => ({ code, uuid })),
         assignees: [...j.assignees],
         earliestStart: j.earliestStart, waves: [...j.waves],

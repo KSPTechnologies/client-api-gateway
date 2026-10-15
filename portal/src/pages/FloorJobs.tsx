@@ -11,6 +11,7 @@ interface Job {
   completed: number;
   otherStatus: Record<string, number>;
   taskTypes: Record<string, number>;
+  progress: Record<string, { pending: number; completed: number; other: number }>;
   orders: OrderRef[];
   assignees: string[];
   earliestStart: string | null;
@@ -47,6 +48,15 @@ export default function FloorJobs() {
   const [search, setSearch] = useState('');
   const [jobLookup, setJobLookup] = useState(''); // active direct Logiwa lookup
   const [copied, setCopied] = useState('');
+  const [orderStatuses, setOrderStatuses] = useState<Record<string, string>>({});
+
+  const loadOrderStatuses = (j: Job) => {
+    const uuids = j.orders.map((o) => o.uuid).filter((u): u is string => !!u && !orderStatuses[u]);
+    if (uuids.length === 0) return;
+    fetch(`/api/floor-job-orders?env=${envSel}&uuids=${uuids.slice(0, 15).join(',')}`)
+      .then((r) => r.json())
+      .then((d) => setOrderStatuses((prev) => ({ ...prev, ...((d as { statuses?: Record<string, string> }).statuses || {}) })));
+  };
 
   const load = (direct?: string) => {
     setLoading(true);
@@ -176,35 +186,50 @@ export default function FloorJobs() {
                   <table style={{ width: '100%' }}>
                     <thead>
                       <tr>
-                        <th>Job</th><th>Client</th><th>Job Status</th><th>Pending</th><th>Completed</th><th>Task Types</th><th>Assignees</th><th>Planned Start</th>
+                        <th>Job</th><th>Client</th><th>Job Status</th><th>Progress (done/total per step)</th><th>Assignees</th><th>Planned Start</th>
                       </tr>
                     </thead>
                     <tbody>
                       {c.jobs.map((j) => (
                         <Fragment key={j.jobCode}>
-                          <tr onClick={() => setOpenJob(openJob === j.jobCode ? null : j.jobCode)} style={{ cursor: 'pointer' }}>
+                          <tr onClick={() => { const opening = openJob !== j.jobCode; setOpenJob(opening ? j.jobCode : null); if (opening) loadOrderStatuses(j); }} style={{ cursor: 'pointer' }}>
                             <td style={{ fontSize: 13 }}><Copyable val={j.jobCode} /></td>
                             <td>{j.client}</td>
                             <td><span className={`badge ${j.jobStatus === 'Completed' ? 'fulfilled' : 'sent'}`}>{j.jobStatus}</span></td>
-                            <td style={{ color: j.pending > 0 ? '#e65100' : undefined, fontWeight: j.pending > 0 ? 700 : undefined }}>{j.pending}</td>
-                            <td>{j.completed}</td>
-                            <td style={{ fontSize: 12 }}>{Object.entries(j.taskTypes).map(([t, n]) => `${t}:${n}`).join(' ')}</td>
+                            <td style={{ fontSize: 13 }}>
+                              {Object.entries(j.progress).map(([step, p]) => {
+                                const total = p.pending + p.completed + p.other;
+                                const done = p.completed === total;
+                                return (
+                                  <span key={step} style={{ marginRight: 12, whiteSpace: 'nowrap' }}>
+                                    {step}{' '}
+                                    <b style={{ color: done ? '#2e7d32' : '#e65100' }}>{p.completed}/{total}</b>
+                                    {done ? ' ✓' : ` (${p.pending} to do)`}
+                                  </span>
+                                );
+                              })}
+                            </td>
                             <td style={{ fontSize: 12 }}>{j.assignees.join(', ') || '—'}</td>
                             <td style={{ fontSize: 12 }}>{j.earliestStart ? formatDate(j.earliestStart) : '—'}</td>
                           </tr>
                           {openJob === j.jobCode && (
                             <tr>
-                              <td colSpan={8} style={{ background: '#fafafa', padding: '10px 16px' }}>
+                              <td colSpan={6} style={{ background: '#fafafa', padding: '10px 16px' }}>
                                 <div style={{ fontSize: 12, marginBottom: 6 }}>
-                                  <b>Orders in this job ({j.orders.length})</b> — UUID is what Locus/external systems receive; click a UUID to copy it.
+                                  <b>Orders in this job ({j.orders.length})</b> — UUID is what Locus/external systems receive; click any value to copy. Status is live from Logiwa.
                                 </div>
                                 <table style={{ fontSize: 12 }}>
-                                  <thead><tr><th>Order #</th><th>Order UUID</th></tr></thead>
+                                  <thead><tr><th>Order #</th><th>Order UUID</th><th>Order Status</th></tr></thead>
                                   <tbody>
                                     {j.orders.map((o) => (
                                       <tr key={o.code}>
                                         <td><Copyable val={o.code} /></td>
                                         <td>{o.uuid ? <Copyable val={o.uuid} /> : '—'}</td>
+                                        <td>
+                                          {o.uuid && orderStatuses[o.uuid]
+                                            ? <span className={`badge ${/^(Shipped|Delivered)$/.test(orderStatuses[o.uuid]) ? 'fulfilled' : 'sent'}`}>{orderStatuses[o.uuid]}</span>
+                                            : <span style={{ color: '#aaa' }}>loading…</span>}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>
