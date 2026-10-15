@@ -16,6 +16,8 @@ interface TaskRow {
   warehouseJobCode: string | null;
   toTaskQuantity: number | null;
   fromTaskQuantity: number | null;
+  fromTaskUOMQuantity: number | null;
+  fromPackTypeName: string | null;
   actualFinishDateTime: string | null;
 }
 
@@ -74,7 +76,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         jt: t.jobTypeName || '(untyped)',
         tt: t.warehouseTaskTypeName || '?',
         j: t.warehouseJobCode || '',
-        q: Number(t.toTaskQuantity ?? t.fromTaskQuantity ?? 1) || 1,
+        // p = PICKABLE units: quantity in the task's pack type (1 case = 1
+        // grab). e = inner eaches (a case of 500 counts 500). Rates use p so
+        // bulk/case pickers aren't credited with inner units.
+        p: Number(t.fromTaskQuantity ?? t.toTaskQuantity ?? 1) || 1,
+        e: Number(t.fromTaskUOMQuantity ?? t.fromTaskQuantity ?? 1) || 1,
+        pk: t.fromPackTypeName || 'Unit',
         f: Date.parse(t.actualFinishDateTime as string),
       }))
       .filter((r) => isFinite(r.f));

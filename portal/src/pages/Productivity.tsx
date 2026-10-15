@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 
-interface Row { u: string; c: string; jt: string; tt: string; j: string; q: number; f: number; }
+interface Row { u: string; c: string; jt: string; tt: string; j: string; p: number; e: number; pk: string; f: number; }
 
 interface ProdData {
   environment: string;
@@ -12,7 +12,7 @@ interface ProdData {
   error?: string;
 }
 
-type Slice = 'user' | 'client' | 'jobtype';
+type Slice = 'user' | 'client' | 'jobtype' | 'tasktype';
 
 const GAP_CAP_MS = 5 * 60 * 1000; // active-time gap cap: pauses over 5 min don't count
 
@@ -38,7 +38,7 @@ function subsetActiveHours(rows: Row[]): number {
   return ms / 3_600_000;
 }
 
-interface Agg { key: string; tasks: number; units: number; hours: number; uph: number; users: number; clients: number; }
+interface Agg { key: string; tasks: number; pu: number; eaches: number; hours: number; puph: number; users: number; clients: number; }
 
 function aggregate(rows: Row[], keyOf: (r: Row) => string): Agg[] {
   const groups = new Map<string, Row[]>();
@@ -49,17 +49,18 @@ function aggregate(rows: Row[], keyOf: (r: Row) => string): Agg[] {
   }
   const out: Agg[] = [];
   for (const [key, rs] of groups) {
-    const units = rs.reduce((s, r) => s + r.q, 0);
+    const pu = rs.reduce((s, r) => s + r.p, 0);
+    const eaches = rs.reduce((s, r) => s + r.e, 0);
     const hours = subsetActiveHours(rs);
     out.push({
-      key, tasks: rs.length, units,
+      key, tasks: rs.length, pu, eaches,
       hours: Math.round(hours * 100) / 100,
-      uph: hours > 0 ? Math.round((units / hours) * 10) / 10 : 0,
+      puph: hours > 0 ? Math.round((pu / hours) * 10) / 10 : 0,
       users: new Set(rs.map((r) => r.u)).size,
       clients: new Set(rs.map((r) => r.c)).size,
     });
   }
-  return out.sort((a, b) => b.units - a.units);
+  return out.sort((a, b) => b.pu - a.pu);
 }
 
 export default function Productivity() {
@@ -84,25 +85,30 @@ export default function Productivity() {
   const taskTypes = [...new Set(allRows.map((r) => r.tt))].sort();
   const rows = taskType ? allRows.filter((r) => r.tt === taskType) : allRows;
 
-  const keyOf = (r: Row) => (slice === 'user' ? r.u : slice === 'client' ? r.c : r.jt);
+  const keyOf = (r: Row) =>
+    slice === 'user' ? r.u : slice === 'client' ? r.c : slice === 'tasktype' ? r.tt : r.jt;
   const aggs = aggregate(rows, keyOf);
   const totals = {
     tasks: rows.length,
-    units: rows.reduce((s, r) => s + r.q, 0),
+    pu: rows.reduce((s, r) => s + r.p, 0),
+    eaches: rows.reduce((s, r) => s + r.e, 0),
     hours: Math.round(subsetActiveHours(rows) * 100) / 100,
   };
 
-  // Drill-down: within the open group, break down by the complementary dims.
+  // Drill-down: within the open group, break down by the complementary dims
+  // (incl. job-type-inside-client, and pack type to show case vs each work).
   const detailOf = (key: string) => {
     const subset = rows.filter((r) => keyOf(r) === key);
     return {
-      byTaskType: aggregate(subset, (r) => r.tt),
+      byTaskType: slice === 'tasktype' ? aggregate(subset, (r) => r.c) : aggregate(subset, (r) => r.tt),
       byOther: slice === 'user' ? aggregate(subset, (r) => r.c) : aggregate(subset, (r) => r.u),
       byJobType: slice === 'jobtype' ? aggregate(subset, (r) => r.c) : aggregate(subset, (r) => r.jt),
+      byPackType: aggregate(subset, (r) => r.pk),
     };
   };
 
-  const sliceLabel = slice === 'user' ? 'User' : slice === 'client' ? 'Client' : 'Job Type';
+  const sliceLabel = slice === 'user' ? 'User' : slice === 'client' ? 'Client' : slice === 'tasktype' ? 'Task Type' : 'Job Type';
+  const taskTypeSubLabel = slice === 'tasktype' ? 'By Client' : 'By Task Type';
   const otherLabel = slice === 'user' ? 'By Client' : 'By User';
   const jobTypeLabel = slice === 'jobtype' ? 'By Client' : 'By Job Type';
 
@@ -110,9 +116,11 @@ export default function Productivity() {
     <div>
       <div className="page-header"><h1>Productivity</h1></div>
       <p style={{ fontSize: 13, color: '#888', marginTop: -8, marginBottom: 16 }}>
-        Completed warehouse tasks from Logiwa, sliced by user, client, or job type. <b>Hours</b> are
-        gap-capped active time (pauses over 5 minutes between completions don't count), so
-        <b> units/hr</b> approximates working rate, not wall-clock.
+        Completed warehouse tasks from Logiwa, sliced by user, client, job type, or task type.
+        <b> Pickable Units (PU)</b> = what was physically handled — a case pick counts once, not
+        its inner quantity (shown separately as Eaches). <b>Hours</b> are gap-capped active time
+        (pauses over 5 minutes between completions don't count), so <b>PU/Hr</b> approximates
+        working rate, not wall-clock.
       </p>
 
       <div className="toolbar">
@@ -121,6 +129,7 @@ export default function Productivity() {
             <option value="user">By User</option>
             <option value="client">By Client</option>
             <option value="jobtype">By Job Type</option>
+            <option value="tasktype">By Task Type</option>
           </select>
           <select value={taskType} onChange={(e) => { setTaskType(e.target.value); setOpen(null); }}>
             <option value="">All task types</option>
@@ -140,7 +149,7 @@ export default function Productivity() {
         </div>
         {data && !data.error && (
           <div style={{ fontSize: 12, color: '#888' }}>
-            {totals.units} units · {totals.tasks} tasks · {totals.hours} active hrs
+            {totals.pu} pickable units ({totals.eaches} eaches) · {totals.tasks} tasks · {totals.hours} active hrs
             {data.truncated ? ` — ${data.taskRowsLoaded} of ${data.taskRowsInWindow} rows loaded, narrow the window` : ''}
           </div>
         )}
@@ -158,10 +167,11 @@ export default function Productivity() {
             <thead>
               <tr>
                 <th>{sliceLabel}</th>
-                <th>Units</th>
+                <th>Pickable Units</th>
+                <th>Eaches</th>
                 <th>Tasks</th>
                 <th>Active Hrs</th>
-                <th>Units/Hr</th>
+                <th>PU/Hr</th>
                 {slice !== 'user' && <th>Users</th>}
                 {slice === 'user' && <th>Clients</th>}
               </tr>
@@ -171,24 +181,25 @@ export default function Productivity() {
                 <Fragment key={a.key}>
                   <tr onClick={() => setOpen(open === a.key ? null : a.key)} style={{ cursor: 'pointer' }}>
                     <td style={{ fontWeight: 600 }}>{a.key}</td>
-                    <td>{a.units}</td>
+                    <td>{a.pu}</td>
+                    <td style={{ color: '#888' }}>{a.eaches}</td>
                     <td>{a.tasks}</td>
                     <td>{a.hours}</td>
-                    <td style={{ fontWeight: 700, color: '#1565c0' }}>{a.uph || '—'}</td>
+                    <td style={{ fontWeight: 700, color: '#1565c0' }}>{a.puph || '—'}</td>
                     {slice !== 'user' && <td>{a.users}</td>}
                     {slice === 'user' && <td>{a.clients}</td>}
                   </tr>
                   {open === a.key && (() => {
                     const det = detailOf(a.key);
                     const sub = (title: string, list: Agg[]) => (
-                      <div style={{ minWidth: 260 }}>
+                      <div style={{ minWidth: 280 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{title}</div>
                         <table style={{ fontSize: 12, width: '100%' }}>
-                          <thead><tr><th></th><th>Units</th><th>Tasks</th><th>Hrs</th><th>U/Hr</th></tr></thead>
+                          <thead><tr><th></th><th>PU</th><th>Eaches</th><th>Tasks</th><th>Hrs</th><th>PU/Hr</th></tr></thead>
                           <tbody>
                             {list.map((s) => (
                               <tr key={s.key}>
-                                <td>{s.key}</td><td>{s.units}</td><td>{s.tasks}</td><td>{s.hours}</td><td>{s.uph || '—'}</td>
+                                <td>{s.key}</td><td>{s.pu}</td><td style={{ color: '#888' }}>{s.eaches}</td><td>{s.tasks}</td><td>{s.hours}</td><td>{s.puph || '—'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -197,11 +208,12 @@ export default function Productivity() {
                     );
                     return (
                       <tr>
-                        <td colSpan={7} style={{ background: '#fafafa', padding: '12px 20px' }}>
+                        <td colSpan={8} style={{ background: '#fafafa', padding: '12px 20px' }}>
                           <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
-                            {sub('By Task Type', det.byTaskType)}
+                            {sub(taskTypeSubLabel, det.byTaskType)}
                             {sub(otherLabel, det.byOther)}
                             {sub(jobTypeLabel, det.byJobType)}
+                            {sub('By Pack Type (case vs each)', det.byPackType)}
                           </div>
                         </td>
                       </tr>
