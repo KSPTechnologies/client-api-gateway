@@ -10,9 +10,10 @@ import Aftership from './pages/Aftership';
 import ShippingRules from './pages/ShippingRules';
 import OrderMirror from './pages/OrderMirror';
 import Speedee from './pages/Speedee';
+import Console from './pages/Console';
 import './App.css';
 
-type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership' | 'shipping-rules' | 'order-mirror' | 'speedee';
+type Page = 'dashboard' | 'activity' | 'tenants' | 'api-keys' | 'orders' | 'errors' | 'zoho' | 'sftp' | 'aftership' | 'shipping-rules' | 'order-mirror' | 'speedee' | 'console';
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -35,6 +36,7 @@ function App() {
           <li className={page === 'shipping-rules' ? 'active' : ''} onClick={() => setPage('shipping-rules')}>Shipping Rules</li>
           <li className={page === 'order-mirror' ? 'active' : ''} onClick={() => setPage('order-mirror')}>Order Mirror</li>
           <li className={page === 'speedee' ? 'active' : ''} onClick={() => setPage('speedee')}>SpeeDee</li>
+          <li className={page === 'console' ? 'active' : ''} onClick={() => setPage('console')}>API Console</li>
         </ul>
       </nav>
       <main className="content">
@@ -49,6 +51,7 @@ function App() {
         {page === 'shipping-rules' && <ShippingRules />}
         {page === 'order-mirror' && <OrderMirror />}
         {page === 'speedee' && <Speedee />}
+        {page === 'console' && <Console />}
       </main>
     </div>
   );

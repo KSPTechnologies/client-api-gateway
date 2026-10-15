@@ -8,6 +8,7 @@ import { handleProducts } from './products';
 import { handleWebhooks } from './webhooks';
 import { handleZohoWebhook } from './zoho';
 import { handleSpeedeeCarrier } from './speedee';
+import { handleConsole } from './console';
 import { logRequest } from '../lib/logger';
 import { checkRateLimit } from '../lib/rate-limit';
 import { resolveEndpointType, isEndpointEnabled } from '../lib/endpoints';
@@ -39,6 +40,12 @@ export async function handleRequest(
   // branches before the tenant auth gate, like the Zoho webhook.
   if (path.startsWith('/carriers/speedee')) {
     return withCors(await handleSpeedeeCarrier(request, env, path));
+  }
+
+  // Portal API Console act-as-client endpoint — shared-secret auth (KV),
+  // called server-side by the portal only. Branches before tenant auth.
+  if (path === '/admin/console') {
+    return withCors(await handleConsole(request, env));
   }
 
   // Zoho connector webhook — authenticated (X-API-Key), translates Zoho -> order.
