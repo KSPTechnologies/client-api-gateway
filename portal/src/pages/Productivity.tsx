@@ -189,7 +189,55 @@ export default function Productivity() {
                     {slice !== 'user' && <td>{a.users}</td>}
                     {slice === 'user' && <td>{a.clients}</td>}
                   </tr>
-                  {open === a.key && (() => {
+                  {open === a.key && slice === 'client' && (() => {
+                    // Client drill-down: NESTED job types -> users, so you can
+                    // see which job type works best for this client and who
+                    // ran it at what rate.
+                    const subset = rows.filter((r) => r.c === a.key);
+                    const jobTypes = aggregate(subset, (r) => r.jt);
+                    const det = detailOf(a.key);
+                    const small = (title: string, list: Agg[]) => (
+                      <div style={{ minWidth: 240 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{title}</div>
+                        <table style={{ fontSize: 12, width: '100%' }}>
+                          <thead><tr><th></th><th>PU</th><th>Tasks</th><th>Hrs</th><th>PU/Hr</th></tr></thead>
+                          <tbody>{list.map((s) => (
+                            <tr key={s.key}><td>{s.key}</td><td>{s.pu}</td><td>{s.tasks}</td><td>{s.hours}</td><td>{s.puph || '—'}</td></tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    );
+                    return (
+                      <tr>
+                        <td colSpan={8} style={{ background: '#fafafa', padding: '12px 20px' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Job types for {a.key} — with each person's performance</div>
+                          <table style={{ fontSize: 12, width: '100%', marginBottom: 14 }}>
+                            <thead><tr><th>Job Type / User</th><th>PU</th><th>Eaches</th><th>Tasks</th><th>Hrs</th><th>PU/Hr</th></tr></thead>
+                            <tbody>
+                              {jobTypes.map((jt) => (
+                                <Fragment key={jt.key}>
+                                  <tr style={{ background: '#eef3f8', fontWeight: 700 }}>
+                                    <td>{jt.key}</td><td>{jt.pu}</td><td style={{ color: '#888' }}>{jt.eaches}</td><td>{jt.tasks}</td><td>{jt.hours}</td><td style={{ color: '#1565c0' }}>{jt.puph || '—'}</td>
+                                  </tr>
+                                  {aggregate(subset.filter((r) => r.jt === jt.key), (r) => r.u).map((u) => (
+                                    <tr key={jt.key + u.key}>
+                                      <td style={{ paddingLeft: 24, color: '#444' }}>{u.key}</td>
+                                      <td>{u.pu}</td><td style={{ color: '#888' }}>{u.eaches}</td><td>{u.tasks}</td><td>{u.hours}</td><td>{u.puph || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </Fragment>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+                            {small('By Task Type', det.byTaskType)}
+                            {small('By Pack Type (case vs each)', det.byPackType)}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                  {open === a.key && slice !== 'client' && (() => {
                     const det = detailOf(a.key);
                     const sub = (title: string, list: Agg[]) => (
                       <div style={{ minWidth: 280 }}>
