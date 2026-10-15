@@ -69,9 +69,20 @@ export default function FloorJobs() {
 
   const clearLookup = () => { setJobLookup(''); setSearch(''); load(); };
 
-  const copyUuid = async (uuid: string) => {
-    try { await navigator.clipboard.writeText(uuid); setCopied(uuid); setTimeout(() => setCopied(''), 1500); } catch { /* ignore */ }
+  const copyVal = async (val: string, e?: React.MouseEvent) => {
+    e?.stopPropagation(); // don't toggle row expansion when copying
+    try { await navigator.clipboard.writeText(val); setCopied(val); setTimeout(() => setCopied(''), 1500); } catch { /* ignore */ }
   };
+
+  const Copyable = ({ val, style }: { val: string; style?: React.CSSProperties }) => (
+    <span
+      onClick={(e) => copyVal(val, e)}
+      title="Click to copy"
+      style={{ fontFamily: 'monospace', cursor: 'copy', color: copied === val ? '#2e7d32' : '#1565c0', ...style }}
+    >
+      {copied === val ? '✓ copied' : val}
+    </span>
+  );
 
   // Local search filters jobs by job code, order code, or order UUID.
   const q = search.trim().toLowerCase();
@@ -172,7 +183,7 @@ export default function FloorJobs() {
                       {c.jobs.map((j) => (
                         <Fragment key={j.jobCode}>
                           <tr onClick={() => setOpenJob(openJob === j.jobCode ? null : j.jobCode)} style={{ cursor: 'pointer' }}>
-                            <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{j.jobCode}</td>
+                            <td style={{ fontSize: 13 }}><Copyable val={j.jobCode} /></td>
                             <td>{j.client}</td>
                             <td><span className={`badge ${j.jobStatus === 'Completed' ? 'fulfilled' : 'sent'}`}>{j.jobStatus}</span></td>
                             <td style={{ color: j.pending > 0 ? '#e65100' : undefined, fontWeight: j.pending > 0 ? 700 : undefined }}>{j.pending}</td>
@@ -192,18 +203,19 @@ export default function FloorJobs() {
                                   <tbody>
                                     {j.orders.map((o) => (
                                       <tr key={o.code}>
-                                        <td style={{ fontFamily: 'monospace' }}>{o.code}</td>
-                                        <td style={{ fontFamily: 'monospace', cursor: o.uuid ? 'pointer' : undefined, color: copied === o.uuid ? '#2e7d32' : '#1565c0' }}
-                                          onClick={() => o.uuid && copyUuid(o.uuid)}
-                                          title={o.uuid ? 'Click to copy' : ''}>
-                                          {o.uuid ? (copied === o.uuid ? '✓ copied' : o.uuid) : '—'}
-                                        </td>
+                                        <td><Copyable val={o.code} /></td>
+                                        <td>{o.uuid ? <Copyable val={o.uuid} /> : '—'}</td>
                                       </tr>
                                     ))}
                                   </tbody>
                                 </table>
                                 {j.waves.length > 0 && (
-                                  <div style={{ fontSize: 12, marginTop: 8, color: '#888' }}>Waves: {j.waves.join(', ')}</div>
+                                  <div style={{ fontSize: 12, marginTop: 8, color: '#888' }}>
+                                    Waves:{' '}
+                                    {j.waves.map((w, i) => (
+                                      <Fragment key={w}>{i > 0 && ', '}<Copyable val={w} style={{ fontSize: 12 }} /></Fragment>
+                                    ))}
+                                  </div>
                                 )}
                               </td>
                             </tr>
