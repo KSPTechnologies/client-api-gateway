@@ -1,6 +1,8 @@
 import { useState, useEffect, Fragment } from 'react';
 import { formatDate } from '../utils';
 
+interface OrderRef { code: string; uuid: string | null; }
+
 interface Job {
   jobCode: string;
   jobStatus: string;
@@ -9,7 +11,7 @@ interface Job {
   completed: number;
   otherStatus: Record<string, number>;
   taskTypes: Record<string, number>;
-  orders: string[];
+  orders: OrderRef[];
   assignees: string[];
   earliestStart: string | null;
   waves: string[];
@@ -42,19 +44,53 @@ export default function FloorJobs() {
   const [openOnly, setOpenOnly] = useState(true);
   const [openType, setOpenType] = useState<string | null>(null);
   const [openJob, setOpenJob] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [jobLookup, setJobLookup] = useState(''); // active direct Logiwa lookup
+  const [copied, setCopied] = useState('');
 
-  const load = () => {
+  const load = (direct?: string) => {
     setLoading(true);
-    fetch(`/api/floor-jobs?env=${envSel}&days=${days}`)
+    const params = new URLSearchParams({ env: envSel, days: String(days) });
+    if (direct) params.set('jobCode', direct);
+    fetch(`/api/floor-jobs?${params}`)
       .then((r) => r.json())
       .then((d) => { setData(d as FloorData); setLoading(false); });
   };
 
-  useEffect(load, [days, envSel]);
+  useEffect(() => { setJobLookup(''); load(); }, [days, envSel]);
+
+  const findInLogiwa = () => {
+    const code = search.trim();
+    if (!code) return;
+    setJobLookup(code);
+    setOpenOnly(false);
+    load(code);
+  };
+
+  const clearLookup = () => { setJobLookup(''); setSearch(''); load(); };
+
+  const copyUuid = async (uuid: string) => {
+    try { await navigator.clipboard.writeText(uuid); setCopied(uuid); setTimeout(() => setCopied(''), 1500); } catch { /* ignore */ }
+  };
+
+  // Local search filters jobs by job code, order code, or order UUID.
+  const q = search.trim().toLowerCase();
+  const jobMatches = (j: Job) =>
+    !q ||
+    j.jobCode.toLowerCase().includes(q) ||
+    j.orders.some((o) => o.code.toLowerCase().includes(q) || (o.uuid || '').toLowerCase().includes(q));
 
   const cats = (data?.categories || [])
-    .map((c) => openOnly ? { ...c, jobs: c.jobs.filter((j) => j.pending > 0) } : c)
-    .filter((c) => (openOnly ? c.jobs.length > 0 : true));
+    .map((c) => {
+      const jobs = c.jobs.filter((j) => (openOnly ? j.pending > 0 : true) && jobMatches(j));
+      return {
+        ...c,
+        jobs,
+        pendingTasks: jobs.reduce((s, j) => s + j.pending, 0),
+        completedTasks: jobs.reduce((s, j) => s + j.completed, 0),
+      };
+    })
+    .filter((c) => c.jobs.length > 0);
 
   return (
     <div>
@@ -81,7 +117,18 @@ export default function FloorJobs() {
             <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
             {' '}Only jobs with pending work
           </label>
-          <button className="btn btn-sm" onClick={load}>Refresh</button>
+          <input
+            placeholder="Search job # / order # / UUID…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') findInLogiwa(); }}
+            style={{ padding: '6px 8px', minWidth: 230, fontFamily: 'monospace', fontSize: 12 }}
+          />
+          <button className="btn btn-sm" onClick={findInLogiwa} title="Fetch this job code directly from Logiwa (ignores the date window)">Find job in Logiwa</button>
+          {jobLookup && (
+            <button className="btn btn-sm" onClick={clearLookup}>✕ viewing {jobLookup} — back to window</button>
+          )}
+          <button className="btn btn-sm" onClick={() => load(jobLookup || undefined)}>Refresh</button>
         </div>
         {data && !data.error && (
           <div style={{ fontSize: 12, color: '#888' }}>
@@ -138,13 +185,23 @@ export default function FloorJobs() {
                             <tr>
                               <td colSpan={8} style={{ background: '#fafafa', padding: '10px 16px' }}>
                                 <div style={{ fontSize: 12, marginBottom: 6 }}>
-                                  <b>Orders in this job ({j.orders.length}):</b>
+                                  <b>Orders in this job ({j.orders.length})</b> — UUID is what Locus/external systems receive; click a UUID to copy it.
                                 </div>
-                                <div style={{ fontFamily: 'monospace', fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                  {j.orders.map((o) => (
-                                    <span key={o} style={{ background: '#e3f2fd', padding: '2px 8px', borderRadius: 8 }}>{o}</span>
-                                  ))}
-                                </div>
+                                <table style={{ fontSize: 12 }}>
+                                  <thead><tr><th>Order #</th><th>Order UUID</th></tr></thead>
+                                  <tbody>
+                                    {j.orders.map((o) => (
+                                      <tr key={o.code}>
+                                        <td style={{ fontFamily: 'monospace' }}>{o.code}</td>
+                                        <td style={{ fontFamily: 'monospace', cursor: o.uuid ? 'pointer' : undefined, color: copied === o.uuid ? '#2e7d32' : '#1565c0' }}
+                                          onClick={() => o.uuid && copyUuid(o.uuid)}
+                                          title={o.uuid ? 'Click to copy' : ''}>
+                                          {o.uuid ? (copied === o.uuid ? '✓ copied' : o.uuid) : '—'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
                                 {j.waves.length > 0 && (
                                   <div style={{ fontSize: 12, marginTop: 8, color: '#888' }}>Waves: {j.waves.join(', ')}</div>
                                 )}
