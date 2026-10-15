@@ -61,16 +61,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const filter = jobCode
       ? `JobCode.eq=${encodeURIComponent(jobCode)}`
       : `PlannedStartDateTime.bt=${range}`;
-    for (let page = 0; page < 6; page++) { // cap: 1200 task rows per load
-      const res = await fetch(
-        `${apiUrl}/v3.1/Report/WarehouseTask/order-operation/i/${page}/s/200?${filter}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+    const pageUrl = (p: number) =>
+      `${apiUrl}/v3.1/Report/WarehouseTask/order-operation/i/${p}/s/200?${filter}`;
+    const getPage = async (p: number): Promise<{ data: TaskRow[]; totalCount: number }> => {
+      const res = await fetch(pageUrl(p), { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(`task report ${res.status}`);
-      const body = (await res.json()) as { data: TaskRow[]; totalCount: number };
-      total = body.totalCount ?? total;
-      rows.push(...(body.data || []));
-      if ((body.data || []).length < 200) break;
+      return (await res.json()) as { data: TaskRow[]; totalCount: number };
+    };
+
+    // Page 0 tells us the total; remaining pages fetch in parallel.
+    const MAX_PAGES = 15; // 3000 task rows per load
+    const first = await getPage(0);
+    total = first.totalCount ?? 0;
+    rows.push(...(first.data || []));
+    const pagesNeeded = Math.min(Math.ceil(total / 200), MAX_PAGES);
+    if (pagesNeeded > 1) {
+      const rest = await Promise.all(
+        Array.from({ length: pagesNeeded - 1 }, (_, i) => getPage(i + 1))
+      );
+      for (const b of rest) rows.push(...(b.data || []));
     }
 
     // jobCode -> aggregate
