@@ -3,7 +3,7 @@ import type { TenantContext } from '../auth';
 import { handleOrders } from '../routes/orders';
 import { handlePurchaseOrders } from '../routes/purchase-orders';
 import { handleTracking } from '../routes/tracking';
-import { getLogiwaCredentials, getTenantLogiwaConfig } from './logiwa';
+import { getLogiwaCredentials, getTenantLogiwaConfig, listShipmentOrders, findPurchaseOrderByCode } from './logiwa';
 import { resolveMissingPackTypes } from './packtype';
 
 /**
@@ -41,7 +41,7 @@ function tenantCtx(c: SftpClient): TenantContext {
 
 // Plain-text note written next to a failed file in the client's failed/
 // folder (as <archived name>.error.txt). The original stays byte-exact.
-function buildErrorNote(fileName: string, orderCode: string | null, error: string): string {
+function buildErrorNote(fileName: string, orderCode: string | null, error: string, retriesExhausted = false): string {
   return [
     'KSP Gateway — order file import FAILED',
     `file: ${fileName}`,
@@ -49,9 +49,21 @@ function buildErrorNote(fileName: string, orderCode: string | null, error: strin
     `orderCode: ${orderCode || '(not determined)'}`,
     `error: ${error}`,
     '',
-    'Fix the data and re-drop the file (same filename is fine) into /in to retry.',
+    retriesExhausted
+      ? `This was a temporary system error, not a data problem — the gateway retried ${RETRY_SCHEDULE_MIN.length} times over ~1 hour. Re-drop the file into /in to try again, or contact KSP support if it persists.`
+      : 'Fix the data and re-drop the file (same filename is fine) into /in to retry.',
     '',
   ].join('\n');
+}
+
+// Transient (infrastructure) failures are retried IN PLACE with backoff: the
+// file stays in in/, the row flips to status 'retry', and the next cron pass
+// after next_retry_at reattempts it. Data errors (Logiwa 4xx validation) are
+// deliberately NOT matched — only the client can fix those, so they fail fast
+// to failed/ + .error.txt as before.
+export const RETRY_SCHEDULE_MIN = [5, 15, 45]; // minutes before attempts 2, 3, 4
+export function isTransientSftpError(msg: string): boolean {
+  return /Logiwa API error \(5\d\d\)|error code: 5\d\d|auth failed|\(10001\)|internal error|fetch failed|network|timed? out|too many requests|\(429\)/i.test(msg);
 }
 
 export async function syncSftpInbound(env: Env): Promise<void> {
@@ -87,21 +99,28 @@ export async function syncSftpInbound(env: Env): Promise<void> {
          VALUES (?, ?, ?, ?, ?, 'received', datetime('now'), datetime('now'))`
       ).bind(fileId, c.sftp_username, c.tenant_id, key, name).run();
 
+      let retryCount = 0;
       if (!claim.meta || claim.meta.changes === 0) {
-        // A row already owns this in/ key. Two legitimate cases to take over:
+        // A row already owns this in/ key. Three legitimate cases to take over:
         //  - a stale 'received' claim (a run that died mid-flight >10 min ago)
+        //  - a 'retry' row whose backoff window has passed (transient failure)
         //  - a terminal row (error/sent) whose key still points at in/ — that
         //    means a failed move or a client RE-DROP of the same filename;
         //    since the object is demonstrably present, reprocess it.
         const row = (await env.DB.prepare(
-          `SELECT id, status, updated_at FROM sftp_files WHERE r2_key = ?`
+          `SELECT id, status, updated_at, retry_count, next_retry_at FROM sftp_files WHERE r2_key = ?`
         ).bind(key).first()) as any;
         if (!row) continue;
         if (row.status === 'received') {
           const ageMs = Date.now() - Date.parse(`${row.updated_at}Z`);
           if (isNaN(ageMs) || ageMs < 10 * 60 * 1000) continue; // active claim
         }
+        if (row.status === 'retry') {
+          const dueMs = Date.parse(`${row.next_retry_at}Z`);
+          if (!isNaN(dueMs) && Date.now() < dueMs) continue; // backoff window still open
+        }
         fileId = row.id;
+        retryCount = Number(row.retry_count) || 0;
         await env.DB.prepare(
           `UPDATE sftp_files SET status='received', last_error=NULL, updated_at=datetime('now') WHERE id = ?`
         ).bind(fileId).run();
@@ -123,11 +142,69 @@ export async function syncSftpInbound(env: Env): Promise<void> {
         let firstOrderId: string | null = null;
         let errorMsg: string | null = null;
 
+        // Creds for the retry duplicate-guard (best-effort; guard skipped if unavailable).
+        let guardCreds: ReturnType<typeof getLogiwaCredentials> = null;
+        if (retryCount > 0) {
+          try {
+            const cfg = await getTenantLogiwaConfig(env, c.tenant_id, tenant.environment);
+            guardCreds = getLogiwaCredentials(env, cfg.environment, cfg.clientIdentifier);
+          } catch { /* guard skipped */ }
+        }
+
         for (const doc of orders) {
           // Content-based routing: a purchaseOrderLineList means it's a PO;
           // a shipmentOrderLineList (or anything else) goes down the order path.
           const isPO = !!doc && typeof doc === 'object' && Array.isArray((doc as any).purchaseOrderLineList);
           const routePath = isPO ? '/v1/purchase-orders' : '/v1/orders';
+          const docCode = (doc && typeof doc === 'object' && typeof (doc as any).code === 'string') ? (doc as any).code as string : null;
+
+          // RETRY DUPLICATE GUARD: a 5xx can arrive AFTER Logiwa actually
+          // created the order (response lost in transit), so before a retry
+          // resubmits anything, ask Logiwa whether the code already exists.
+          // If it does, treat the doc as submitted and link the gateway row
+          // from the earlier attempt — never double-create.
+          if (retryCount > 0 && docCode && guardCreds) {
+            try {
+              let found: any = null;
+              let logiwaId: string | null = null;
+              if (isPO) {
+                found = await findPurchaseOrderByCode(guardCreds, docCode);
+                if (found && found.code !== docCode) found = null;
+              } else {
+                // Code-only filter: Logiwa stamps orders with a client id that
+                // can differ from the one we send (see getShipmentOrderWithShipments),
+                // so a ClientIdentifier filter would hide our own orders.
+                const list = await listShipmentOrders(guardCreds, 0, 1, { 'Code.eq': docCode });
+                found = list?.data?.[0] && list.data[0].code === docCode ? list.data[0] : null;
+              }
+              if (found) {
+                logiwaId = found.identifier || found.id || null;
+                console.log(`[sftp] retry dup-guard: ${docCode} already exists in Logiwa (${logiwaId || 'id unknown'}); skipping resubmit`);
+                if (!firstCode) firstCode = docCode;
+                if (!isPO && logiwaId) {
+                  // Link the orders row from the failed attempt so tracking
+                  // sync + confirmations flow as if the submit had succeeded.
+                  // Only with a real Logiwa id — tracking-sync polls rows
+                  // WHERE status='sent' AND logiwa_order_id IS NOT NULL.
+                  const existing = (await env.DB.prepare(
+                    `SELECT id FROM orders WHERE tenant_id=? AND external_order_id=? ORDER BY created_at DESC LIMIT 1`
+                  ).bind(c.tenant_id, docCode).first()) as any;
+                  if (existing) {
+                    await env.DB.prepare(
+                      `UPDATE orders SET logiwa_order_id = COALESCE(logiwa_order_id, ?), status = 'sent', updated_at = datetime('now')
+                       WHERE id = ? AND status IN ('received','error','sent')`
+                    ).bind(logiwaId, existing.id).run();
+                    if (!firstOrderId) firstOrderId = existing.id;
+                  }
+                }
+                continue; // this doc is done — on to the next one in the file
+              }
+            } catch (e) {
+              // Guard lookup failed — fall through and submit normally; for POs
+              // Logiwa's own duplicate-code rejection is the backstop.
+              console.log('[sftp] retry dup-guard lookup failed, submitting normally:', e instanceof Error ? e.message : e);
+            }
+          }
 
           if (isPO) {
             // The order path resolves missing packTypes internally; do the same
@@ -156,6 +233,19 @@ export async function syncSftpInbound(env: Env): Promise<void> {
           if (r.status === 'error' || !res.ok) errorMsg = r.message ?? `submit failed (${res.status})`;
         }
 
+        // Transient failure with retries left: leave the file in in/ and
+        // schedule a reattempt (backoff via next_retry_at). Data errors (4xx)
+        // never match the classifier and fail fast below as before.
+        const transient = !!errorMsg && isTransientSftpError(errorMsg);
+        if (errorMsg && transient && retryCount < RETRY_SCHEDULE_MIN.length) {
+          const mins = RETRY_SCHEDULE_MIN[retryCount];
+          await env.DB.prepare(
+            `UPDATE sftp_files SET order_code=?, gateway_order_id=?, status='retry', retry_count=?, next_retry_at=datetime('now', ?), last_error=?, updated_at=datetime('now') WHERE id=?`
+          ).bind(firstCode, firstOrderId, retryCount + 1, `+${mins} minutes`, errorMsg, fileId).run();
+          console.log(`[sftp] transient failure for ${name}; retry ${retryCount + 1}/${RETRY_SCHEDULE_MIN.length} in ${mins}m: ${errorMsg}`);
+          continue;
+        }
+
         // Move out of in/ so it isn't reprocessed. Archive name is timestamped
         // so re-drops of the same filename never collide (in R2 or on the
         // unique r2_key column), and every attempt is preserved.
@@ -168,12 +258,12 @@ export async function syncSftpInbound(env: Env): Promise<void> {
         // the client's IT can see WHY without touching the byte-exact original.
         if (errorMsg) {
           try {
-            await env.SFTP.put(`${dest}.error.txt`, buildErrorNote(name, firstCode, errorMsg));
+            await env.SFTP.put(`${dest}.error.txt`, buildErrorNote(name, firstCode, errorMsg, transient));
           } catch { /* best-effort — never block the archive over the note */ }
         }
 
         await env.DB.prepare(
-          `UPDATE sftp_files SET order_code=?, gateway_order_id=?, status=?, last_error=?, r2_key=?, updated_at=datetime('now') WHERE id=?`
+          `UPDATE sftp_files SET order_code=?, gateway_order_id=?, status=?, last_error=?, r2_key=?, retry_count=0, next_retry_at=NULL, updated_at=datetime('now') WHERE id=?`
         ).bind(firstCode, firstOrderId, errorMsg ? 'error' : 'sent', errorMsg, dest, fileId).run();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

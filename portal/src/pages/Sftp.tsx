@@ -226,6 +226,7 @@ export default function Sftp() {
           <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}>
             <option value="">All Statuses</option>
             <option value="received">Received</option>
+            <option value="retry">Retrying</option>
             <option value="sent">Sent</option>
             <option value="confirmed">Confirmed</option>
             <option value="error">Error</option>
