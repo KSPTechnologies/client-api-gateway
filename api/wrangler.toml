@@ -45,4 +45,5 @@ crons = [
   "*/15 * * * *",
   "0 * * * *",
   "*/2 * * * *",
+  "45 8 * * *",   # nightly productivity aggregation (~2:45am CT)
 ]

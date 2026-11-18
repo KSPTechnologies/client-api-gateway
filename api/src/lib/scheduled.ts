@@ -3,6 +3,7 @@ import { getLogiwaCredentials, getTenantLogiwaConfig, getShipmentOrderWithShipme
 import { syncSftpInbound, syncSftpConfirmations } from './sftp';
 import { pushAfterShipTrackings } from './aftership';
 import { syncOrderMirror } from './order-mirror';
+import { aggregateProductivity } from './productivity-agg';
 
 // Heartbeat wrapper: records each cron's last run + outcome in cron_runs so the
 // portal can show whether jobs are alive. Errors are recorded (better visibility
@@ -67,6 +68,12 @@ export async function handleScheduled(
       });
       // AfterShip pushes for enabled tenants — separate heartbeat, isolated.
       await recordRun(env, 'aftership-push', () => pushAfterShipTrackings(env));
+      break;
+
+    case '45 8 * * *':
+      // Nightly: snapshot the previous two CT days of completed-task stats
+      // into productivity_daily for the portal's monthly productivity view.
+      await recordRun(env, 'productivity-agg', () => aggregateProductivity(env));
       break;
 
     default:

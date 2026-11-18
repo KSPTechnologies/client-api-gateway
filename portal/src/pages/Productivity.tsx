@@ -63,6 +63,16 @@ function aggregate(rows: Row[], keyOf: (r: Row) => string): Agg[] {
   return out.sort((a, b) => b.pu - a.pu);
 }
 
+interface MonthRow { m: string; u: string; c: string; jt: string; tt: string; pu: number; e: number; t: number; ms: number; }
+
+interface MonthlyData {
+  environment: string;
+  months: number;
+  coverage: { first_day: string | null; last_day: string | null; days: number } | null;
+  rows: MonthRow[];
+  error?: string;
+}
+
 export default function Productivity() {
   const [data, setData] = useState<ProdData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +81,19 @@ export default function Productivity() {
   const [slice, setSlice] = useState<Slice>('user');
   const [taskType, setTaskType] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const [view, setView] = useState<'live' | 'monthly'>('live');
+  const [monthsBack, setMonthsBack] = useState(6);
+  const [monthly, setMonthly] = useState<MonthlyData | null>(null);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
+
+  const loadMonthly = () => {
+    setMonthlyLoading(true);
+    fetch(`/api/productivity-monthly?env=${envSel}&months=${monthsBack}`)
+      .then((r) => r.json())
+      .then((d) => { setMonthly(d as MonthlyData); setMonthlyLoading(false); });
+  };
+
+  useEffect(() => { if (view === 'monthly') loadMonthly(); }, [view, monthsBack, envSel]);
 
   const load = () => {
     setLoading(true);
@@ -125,6 +148,10 @@ export default function Productivity() {
 
       <div className="toolbar">
         <div className="filters" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #ccc' }}>
+            <button className="btn btn-sm" style={{ border: 'none', borderRadius: 0, background: view === 'live' ? '#1565c0' : '#fff', color: view === 'live' ? '#fff' : '#333' }} onClick={() => setView('live')}>Live window</button>
+            <button className="btn btn-sm" style={{ border: 'none', borderRadius: 0, background: view === 'monthly' ? '#1565c0' : '#fff', color: view === 'monthly' ? '#fff' : '#333' }} onClick={() => setView('monthly')}>Month to month</button>
+          </div>
           <select value={slice} onChange={(e) => { setSlice(e.target.value as Slice); setOpen(null); }}>
             <option value="user">By User</option>
             <option value="client">By Client</option>
@@ -135,12 +162,20 @@ export default function Productivity() {
             <option value="">All task types</option>
             {taskTypes.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select value={days} onChange={(e) => setDays(parseInt(e.target.value))}>
-            <option value={1}>last 1 day</option>
-            <option value={2}>last 2 days</option>
-            <option value={3}>last 3 days</option>
-            <option value={7}>last 7 days</option>
-          </select>
+          {view === 'live' ? (
+            <select value={days} onChange={(e) => setDays(parseInt(e.target.value))}>
+              <option value={1}>last 1 day</option>
+              <option value={2}>last 2 days</option>
+              <option value={3}>last 3 days</option>
+              <option value={7}>last 7 days</option>
+            </select>
+          ) : (
+            <select value={monthsBack} onChange={(e) => setMonthsBack(parseInt(e.target.value))}>
+              <option value={3}>last 3 months</option>
+              <option value={6}>last 6 months</option>
+              <option value={12}>last 12 months</option>
+            </select>
+          )}
           <select value={envSel} onChange={(e) => setEnvSel(e.target.value as 'production' | 'sandbox')}>
             <option value="production">production</option>
             <option value="sandbox">sandbox</option>
@@ -155,7 +190,70 @@ export default function Productivity() {
         )}
       </div>
 
-      {loading ? (
+      {view === 'monthly' ? (() => {
+        if (monthlyLoading || !monthly) return <div className="empty-state"><p>Loading monthly history…</p></div>;
+        if (monthly.error) return <div className="empty-state"><p style={{ color: '#c62828' }}>{monthly.error}</p></div>;
+        const mrows = taskType ? monthly.rows.filter((r) => r.tt === taskType) : monthly.rows;
+        const keyOfM = (r: MonthRow) => slice === 'user' ? r.u : slice === 'client' ? r.c : slice === 'tasktype' ? r.tt : r.jt;
+        const monthsList = [...new Set(mrows.map((r) => r.m))].sort();
+        if (monthsList.length === 0) return <div className="empty-state"><p>No history yet — the nightly aggregation and backfill fill this in.</p></div>;
+        const byKey = new Map<string, Map<string, { pu: number; ms: number; tasks: number }>>();
+        for (const r of mrows) {
+          const k = keyOfM(r);
+          if (!byKey.has(k)) byKey.set(k, new Map());
+          const mm = byKey.get(k)!;
+          const cell = mm.get(r.m) || { pu: 0, ms: 0, tasks: 0 };
+          cell.pu += r.pu; cell.ms += r.ms; cell.tasks += r.t;
+          mm.set(r.m, cell);
+        }
+        const latest = monthsList[monthsList.length - 1];
+        const prior = monthsList[monthsList.length - 2];
+        const rate = (c?: { pu: number; ms: number }) => (c && c.ms > 0 ? c.pu / (c.ms / 3_600_000) : 0);
+        const keys = [...byKey.keys()].sort((a, b) => (byKey.get(b)!.get(latest)?.pu || 0) - (byKey.get(a)!.get(latest)?.pu || 0));
+        return (
+          <div className="table-container">
+            <div style={{ fontSize: 12, color: '#888', margin: '4px 0 8px' }}>
+              History: {monthly.coverage?.first_day || '—'} → {monthly.coverage?.last_day || '—'} ({monthly.coverage?.days || 0} days). Cells show <b>PU</b> and <b>PU/Hr</b>; Δ compares {prior || '—'} → {latest}.
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>{sliceLabel}</th>
+                  {monthsList.map((m) => <th key={m}>{m}</th>)}
+                  <th>Δ PU/Hr</th>
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((k) => {
+                  const mm = byKey.get(k)!;
+                  const rLatest = rate(mm.get(latest));
+                  const rPrior = prior ? rate(mm.get(prior)) : 0;
+                  const delta = rPrior > 0 && rLatest > 0 ? ((rLatest - rPrior) / rPrior) * 100 : null;
+                  return (
+                    <tr key={k}>
+                      <td style={{ fontWeight: 600 }}>{k}</td>
+                      {monthsList.map((m) => {
+                        const c = mm.get(m);
+                        return (
+                          <td key={m} style={{ whiteSpace: 'nowrap' }}>
+                            {c ? (<>
+                              {Math.round(c.pu)}<span style={{ color: '#888' }}> PU</span>{' '}
+                              <b style={{ color: '#1565c0' }}>{rate(c) ? (Math.round(rate(c) * 10) / 10) : '—'}</b><span style={{ color: '#888', fontSize: 11 }}>/hr</span>
+                            </>) : <span style={{ color: '#ccc' }}>—</span>}
+                          </td>
+                        );
+                      })}
+                      <td style={{ fontWeight: 700, color: delta === null ? '#888' : delta >= 0 ? '#2e7d32' : '#c62828' }}>
+                        {delta === null ? '—' : `${delta >= 0 ? '+' : ''}${Math.round(delta)}%`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })() : loading ? (
         <div className="empty-state"><p>Loading from Logiwa…</p></div>
       ) : data?.error ? (
         <div className="empty-state"><p style={{ color: '#c62828' }}>{data.error}</p></div>
