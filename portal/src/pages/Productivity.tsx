@@ -65,12 +65,15 @@ function aggregate(rows: Row[], keyOf: (r: Row) => string): Agg[] {
 
 interface MonthRow { m: string; u: string; c: string; jt: string; tt: string; pu: number; e: number; t: number; ms: number; }
 
+interface WorkRow { m: string; c: string; jt: string; o: number; l: number; pu: number; e: number; t: number; ms: number; }
+
 interface MonthlyData {
   environment: string;
   months: number;
   range: { from: string; to: string } | null;
   coverage: { first_day: string | null; last_day: string | null; days: number } | null;
   rows: MonthRow[];
+  work?: WorkRow[];
   error?: string;
 }
 
@@ -133,6 +136,35 @@ export default function Productivity() {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `productivity_${monthly.environment}_${label}${taskType ? `_${taskType.replace(/[^\w-]+/g, '-')}` : ''}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // Finance report: Orders / Lines / Eaches + the productive time it took,
+  // per month x client x job type. Orders and lines are true distinct counts
+  // (first-touch day attribution); eaches/PU count picking only, so a unit
+  // picked then packed counts once. Hours are ALL task time for the work.
+  const exportFinanceCsv = () => {
+    if (!monthly || monthly.error || !monthly.work) return;
+    const rows = monthly.work.slice().sort((a, b) => a.m.localeCompare(b.m) || a.c.localeCompare(b.c) || a.jt.localeCompare(b.jt));
+    const lines = ['month,client,job_type,orders,lines,eaches_picked,pickable_units_picked,tasks,active_hours'];
+    for (const r of rows) {
+      const hrs = r.ms / 3_600_000;
+      lines.push([
+        r.m, r.c, r.jt, r.o, r.l,
+        Math.round(r.e * 100) / 100,
+        Math.round(r.pu * 100) / 100,
+        r.t,
+        Math.round(hrs * 100) / 100,
+      ].map(csvEsc).join(','));
+    }
+    const label = monthly.range
+      ? `${monthly.range.from}_${monthly.range.to}`
+      : rows.length ? `${rows[0].m}_${rows[rows.length - 1].m}` : 'empty';
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `workload_${monthly.environment}_${label}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -234,9 +266,15 @@ export default function Productivity() {
           </select>
           <button className="btn btn-sm" onClick={view === 'monthly' ? loadMonthly : load}>Refresh</button>
           {view === 'monthly' && (
-            <button className="btn btn-sm" onClick={exportMonthlyCsv} disabled={monthlyLoading || !monthly || !!monthly.error}>
-              Export CSV
-            </button>
+            <>
+              <button className="btn btn-sm" onClick={exportMonthlyCsv} disabled={monthlyLoading || !monthly || !!monthly.error}>
+                Export CSV
+              </button>
+              <button className="btn btn-sm" onClick={exportFinanceCsv} disabled={monthlyLoading || !monthly || !!monthly.error || !monthly.work}
+                title="Orders, Lines, Eaches + active hours per month × client × job type">
+                Export workload CSV
+              </button>
+            </>
           )}
         </div>
         {data && !data.error && (
@@ -276,7 +314,7 @@ export default function Productivity() {
               {monthly.range
                 ? <>Range: <b>{monthly.range.from} → {monthly.range.to}</b> (months spanning the range show only the days inside it). </>
                 : <>History: {monthly.coverage?.first_day || '—'} → {monthly.coverage?.last_day || '—'} ({monthly.coverage?.days || 0} days). </>}
-              Cells show <b>PU</b> and <b>PU/Hr</b>; Δ compares {prior || '—'} → {latest}.
+              Cells show <b>PU</b>, <b>PU/Hr</b> and <b>active hours</b>; Δ compares {prior || '—'} → {latest}.
             </div>
             <table>
               <thead>
@@ -302,6 +340,7 @@ export default function Productivity() {
                             {c ? (<>
                               {Math.round(c.pu)}<span style={{ color: '#888' }}> PU</span>{' '}
                               <b style={{ color: '#1565c0' }}>{rate(c) ? (Math.round(rate(c) * 10) / 10) : '—'}</b><span style={{ color: '#888', fontSize: 11 }}>/hr</span>
+                              <span style={{ color: '#888', fontSize: 11 }}> · {Math.round(c.ms / 360000) / 10} hrs</span>
                             </>) : <span style={{ color: '#ccc' }}>—</span>}
                           </td>
                         );

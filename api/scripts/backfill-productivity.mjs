@@ -49,7 +49,7 @@ async function fetchWindow(tok, from, to) {
 }
 
 function aggregateDay(day, allRows) {
-  const done = allRows
+  const windowDone = allRows
     .filter((t) => t.warehouseTaskStatusName === 'Completed' && t.executedByDisplayName && t.actualFinishDateTime)
     .map((t) => ({
       u: t.executedByDisplayName, c: t.clientDisplayName || '(no client)',
@@ -58,8 +58,11 @@ function aggregateDay(day, allRows) {
       p: Number(t.fromTaskQuantity ?? t.toTaskQuantity ?? 1) || 1,
       e: Number(t.fromTaskUOMQuantity ?? t.fromTaskQuantity ?? 1) || 1,
       f: Date.parse(t.actualFinishDateTime),
+      oc: t.shipmentOrderCode || null,
+      ln: t.shipmentOrderLineIdentifier || null,
     }))
-    .filter((r) => isFinite(r.f) && ctDay(r.f) === day);
+    .filter((r) => isFinite(r.f));
+  const done = windowDone.filter((r) => ctDay(r.f) === day);
 
   const userF = new Map(), userT = new Map();
   for (const r of done) {
@@ -85,6 +88,38 @@ function aggregateDay(day, allRows) {
   for (const a of agg.values()) {
     const alloc = Math.round((userMs.get(a.u) || 0) * (a.tasks / (userT.get(a.u) || 1)));
     stmts.push(`INSERT INTO productivity_daily (day, environment, user_name, client, job_type, task_type, pack_type, pu, eaches, tasks, alloc_ms) VALUES (${q(day)},'production',${q(a.u)},${q(a.c)},${q(a.jt)},${q(a.tt)},${q(a.pk)},${a.pu},${a.ea},${a.tasks},${alloc});`);
+  }
+
+  // Finance workload counts (productivity_daily_work, 0020) — same math as
+  // buildWorkRows in api/src/lib/productivity-agg.ts: orders/lines are
+  // distinct, attributed to the first completed task's CT day + cell;
+  // picked PU/eaches come from Picking tasks only.
+  const firstOf = (idOf) => {
+    const m = new Map();
+    for (const r of windowDone) {
+      const id = idOf(r);
+      if (!id) continue;
+      const cur = m.get(id);
+      if (!cur || r.f < cur.f) m.set(id, r);
+    }
+    return m;
+  };
+  const cells = new Map();
+  const cell = (c, jt) => {
+    const k = c + '\u0001' + jt;
+    let v = cells.get(k);
+    if (!v) { v = { c, jt, orders: 0, lines: 0, pu: 0, eaches: 0, tasks: 0 }; cells.set(k, v); }
+    return v;
+  };
+  for (const r of firstOf((r) => r.oc).values()) if (ctDay(r.f) === day) cell(r.c, r.jt).orders++;
+  for (const r of firstOf((r) => r.ln).values()) if (ctDay(r.f) === day) cell(r.c, r.jt).lines++;
+  for (const r of done) {
+    const v = cell(r.c, r.jt);
+    v.tasks++;
+    if (/pick/i.test(r.tt)) { v.pu += r.p; v.eaches += r.e; }
+  }
+  for (const w of cells.values()) {
+    stmts.push(`INSERT INTO productivity_daily_work (day, environment, client, job_type, orders, lines, picked_pu, picked_eaches, tasks) VALUES (${q(day)},'production',${q(w.c)},${q(w.jt)},${w.orders},${w.lines},${w.pu},${w.eaches},${w.tasks});`);
   }
   return stmts;
 }
@@ -114,7 +149,11 @@ for (let c = start; c <= end; c += CHUNK_DAYS * 86_400_000) {
   for (let t = c; t <= chunkEnd; t += 86_400_000) {
     const day = new Date(t).toISOString().split('T')[0];
     const stmts = aggregateDay(day, rows);
-    buf.push(`DELETE FROM productivity_daily WHERE day=${q(day)} AND environment='production';`, ...stmts);
+    buf.push(
+      `DELETE FROM productivity_daily WHERE day=${q(day)} AND environment='production';`,
+      `DELETE FROM productivity_daily_work WHERE day=${q(day)} AND environment='production';`,
+      ...stmts
+    );
     totalRows += stmts.length;
     console.log(`  ${day}: ${stmts.length} agg rows`);
     if (buf.length >= 800) flush();

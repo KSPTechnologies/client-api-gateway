@@ -43,6 +43,31 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     : env.DB.prepare(sql).bind(logiwaEnv, sinceDay);
   const { results } = await stmt.all();
 
+  // Finance workload: Orders/Lines (distinct, first-touch attribution — see
+  // 0020) + picked PU/eaches per month x client x job type, with hours from
+  // productivity_daily summed at the same grain.
+  const workSql =
+    `SELECT w.month, w.client, w.job_type, w.orders, w.lines, w.picked_pu, w.picked_eaches, w.tasks, COALESCE(h.ms, 0) AS ms
+     FROM (
+       SELECT substr(day,1,7) AS month, client, job_type,
+              SUM(orders) AS orders, SUM(lines) AS lines,
+              SUM(picked_pu) AS picked_pu, SUM(picked_eaches) AS picked_eaches, SUM(tasks) AS tasks
+       FROM productivity_daily_work
+       WHERE environment = ? AND day >= ?${untilDay ? ' AND day <= ?' : ''}
+       GROUP BY month, client, job_type
+     ) w
+     LEFT JOIN (
+       SELECT substr(day,1,7) AS month, client, job_type, SUM(alloc_ms) AS ms
+       FROM productivity_daily
+       WHERE environment = ? AND day >= ?${untilDay ? ' AND day <= ?' : ''}
+       GROUP BY month, client, job_type
+     ) h ON h.month = w.month AND h.client = w.client AND h.job_type = w.job_type
+     ORDER BY w.month, w.client, w.job_type`;
+  const workBinds = untilDay
+    ? [logiwaEnv, sinceDay, untilDay, logiwaEnv, sinceDay, untilDay]
+    : [logiwaEnv, sinceDay, logiwaEnv, sinceDay];
+  const { results: workResults } = await env.DB.prepare(workSql).bind(...workBinds).all();
+
   const coverage = (await env.DB.prepare(
     `SELECT MIN(day) AS first_day, MAX(day) AS last_day, COUNT(DISTINCT day) AS days
      FROM productivity_daily WHERE environment = ?`
@@ -56,6 +81,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     rows: (results || []).map((r: any) => ({
       m: r.month, u: r.user_name, c: r.client, jt: r.job_type, tt: r.task_type,
       pu: r.pu, e: r.eaches, t: r.tasks, ms: r.ms,
+    })),
+    work: (workResults || []).map((r: any) => ({
+      m: r.month, c: r.client, jt: r.job_type,
+      o: r.orders, l: r.lines, pu: r.picked_pu, e: r.picked_eaches, t: r.tasks, ms: r.ms,
     })),
   });
 };

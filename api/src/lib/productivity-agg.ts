@@ -33,6 +33,8 @@ interface TaskRow {
   toTaskQuantity: number | null;
   fromTaskUOMQuantity: number | null;
   actualFinishDateTime: string | null;
+  shipmentOrderCode: string | null;
+  shipmentOrderLineIdentifier: string | null;
 }
 
 export async function aggregateProductivity(env: Env): Promise<void> {
@@ -71,7 +73,9 @@ export async function aggregateProductivity(env: Env): Promise<void> {
 export async function aggregateDayRows(
   env: Env, environment: string, day: string, allRows: TaskRow[]
 ): Promise<number> {
-  const done = allRows
+  // All completed rows in the WINDOW (first-touch attribution for orders/lines
+  // needs neighboring days), then the target-day subset for everything else.
+  const windowDone = allRows
     .filter((t) => t.warehouseTaskStatusName === 'Completed' && t.executedByDisplayName && t.actualFinishDateTime)
     .map((t) => ({
       u: t.executedByDisplayName as string,
@@ -82,8 +86,11 @@ export async function aggregateDayRows(
       p: Number(t.fromTaskQuantity ?? t.toTaskQuantity ?? 1) || 1,
       e: Number(t.fromTaskUOMQuantity ?? t.fromTaskQuantity ?? 1) || 1,
       f: Date.parse(t.actualFinishDateTime as string),
+      oc: t.shipmentOrderCode || null,
+      ln: t.shipmentOrderLineIdentifier || null,
     }))
-    .filter((r) => isFinite(r.f) && ctDay(r.f) === day);
+    .filter((r) => isFinite(r.f));
+  const done = windowDone.filter((r) => ctDay(r.f) === day);
 
   // Per-user gap-capped active time for the day.
   const userFinishes = new Map<string, number[]>();
@@ -127,5 +134,62 @@ export async function aggregateDayRows(
        VALUES ${placeholders}`
     ).bind(...binds).run();
   }
+
+  // ---- Finance workload counts (productivity_daily_work, 0020) ----
+  const workEntries = buildWorkRows(day, windowDone);
+  await env.DB.prepare(`DELETE FROM productivity_daily_work WHERE day = ? AND environment = ?`)
+    .bind(day, environment).run();
+  for (let i = 0; i < workEntries.length; i += 20) {
+    const chunk = workEntries.slice(i, i + 20);
+    const placeholders2 = chunk.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+    const binds2: unknown[] = [];
+    for (const w of chunk) binds2.push(day, environment, w.c, w.jt, w.orders, w.lines, w.pu, w.eaches, w.tasks);
+    await env.DB.prepare(
+      `INSERT INTO productivity_daily_work (day, environment, client, job_type, orders, lines, picked_pu, picked_eaches, tasks)
+       VALUES ${placeholders2}`
+    ).bind(...binds2).run();
+  }
   return entries.length;
+}
+
+interface DoneRow { u: string; c: string; jt: string; tt: string; pk: string; p: number; e: number; f: number; oc: string | null; ln: string | null; }
+
+/** Orders/Lines (distinct, first-touch day attribution) + picked PU/eaches per
+ *  (client, jobType) for one CT day. Exported so the backfill script's logic
+ *  stays verifiable against the same math. */
+export function buildWorkRows(day: string, windowDone: DoneRow[]): Array<{ c: string; jt: string; orders: number; lines: number; pu: number; eaches: number; tasks: number }> {
+  // First completed task per order / per line across the whole window; the
+  // order (or line) counts once, on that first task's CT day, into that first
+  // task's (client, jobType) cell — so sums across days/job types stay true
+  // distinct counts.
+  const firstOf = (idOf: (r: DoneRow) => string | null) => {
+    const m = new Map<string, DoneRow>();
+    for (const r of windowDone) {
+      const id = idOf(r);
+      if (!id) continue;
+      const cur = m.get(id);
+      if (!cur || r.f < cur.f) m.set(id, r);
+    }
+    return m;
+  };
+  const firstOrderTask = firstOf((r) => r.oc);
+  const firstLineTask = firstOf((r) => r.ln);
+
+  const cells = new Map<string, { c: string; jt: string; orders: number; lines: number; pu: number; eaches: number; tasks: number }>();
+  const cell = (c: string, jt: string) => {
+    const k = `${c}\u0001${jt}`;
+    let v = cells.get(k);
+    if (!v) { v = { c, jt, orders: 0, lines: 0, pu: 0, eaches: 0, tasks: 0 }; cells.set(k, v); }
+    return v;
+  };
+
+  for (const r of firstOrderTask.values()) if (ctDay(r.f) === day) cell(r.c, r.jt).orders++;
+  for (const r of firstLineTask.values()) if (ctDay(r.f) === day) cell(r.c, r.jt).lines++;
+  for (const r of windowDone) {
+    if (ctDay(r.f) !== day) continue;
+    const v = cell(r.c, r.jt);
+    v.tasks++;
+    if (/pick/i.test(r.tt)) { v.pu += r.p; v.eaches += r.e; } // picked once, not re-counted at packing
+  }
+  return [...cells.values()];
 }
