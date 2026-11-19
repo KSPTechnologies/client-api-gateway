@@ -58,7 +58,9 @@ function aggregateDay(day, allRows) {
       p: Number(t.fromTaskQuantity ?? t.toTaskQuantity ?? 1) || 1,
       e: Number(t.fromTaskUOMQuantity ?? t.fromTaskQuantity ?? 1) || 1,
       f: Date.parse(t.actualFinishDateTime),
-      oc: t.shipmentOrderCode || null,
+      // GUID, not code: shipmentOrderCode is a per-client sequence and
+      // collides across clients (see productivity-agg.ts).
+      oc: t.shipmentOrderIdentifier || t.shipmentOrderCode || null,
       ln: t.shipmentOrderLineIdentifier || null,
     }))
     .filter((r) => isFinite(r.f));

@@ -33,6 +33,7 @@ interface TaskRow {
   toTaskQuantity: number | null;
   fromTaskUOMQuantity: number | null;
   actualFinishDateTime: string | null;
+  shipmentOrderIdentifier: string | null;
   shipmentOrderCode: string | null;
   shipmentOrderLineIdentifier: string | null;
 }
@@ -86,7 +87,10 @@ export async function aggregateDayRows(
       p: Number(t.fromTaskQuantity ?? t.toTaskQuantity ?? 1) || 1,
       e: Number(t.fromTaskUOMQuantity ?? t.fromTaskQuantity ?? 1) || 1,
       f: Date.parse(t.actualFinishDateTime as string),
-      oc: t.shipmentOrderCode || null,
+      // Order key MUST be the GUID: shipmentOrderCode is a per-client sequence
+      // (Midwest Dairy and Ready Credit both have SO000000984), so keying on
+      // code merges distinct orders across clients.
+      oc: t.shipmentOrderIdentifier || t.shipmentOrderCode || null,
       ln: t.shipmentOrderLineIdentifier || null,
     }))
     .filter((r) => isFinite(r.f));
