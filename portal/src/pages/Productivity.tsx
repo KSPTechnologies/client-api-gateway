@@ -308,13 +308,30 @@ export default function Productivity() {
         const prior = monthsList[monthsList.length - 2];
         const rate = (c?: { pu: number; ms: number }) => (c && c.ms > 0 ? c.pu / (c.ms / 3_600_000) : 0);
         const keys = [...byKey.keys()].sort((a, b) => (byKey.get(b)!.get(latest)?.pu || 0) - (byKey.get(a)!.get(latest)?.pu || 0));
+        // Finance counts (orders/lines/picked eaches) live at client x job-type
+        // grain, so they only render on those slices. Distinct counts sum
+        // correctly here (each order/line is attributed to exactly one cell).
+        const workByKey = (slice === 'client' || slice === 'jobtype') && monthly.work
+          ? (() => {
+              const m2 = new Map<string, Map<string, { o: number; l: number; e: number }>>();
+              for (const w of monthly.work) {
+                const k = slice === 'client' ? w.c : w.jt;
+                if (!m2.has(k)) m2.set(k, new Map());
+                const mm = m2.get(k)!;
+                const cell = mm.get(w.m) || { o: 0, l: 0, e: 0 };
+                cell.o += w.o; cell.l += w.l; cell.e += w.e;
+                mm.set(w.m, cell);
+              }
+              return m2;
+            })()
+          : null;
         return (
           <div className="table-container">
             <div style={{ fontSize: 12, color: '#888', margin: '4px 0 8px' }}>
               {monthly.range
                 ? <>Range: <b>{monthly.range.from} → {monthly.range.to}</b> (months spanning the range show only the days inside it). </>
                 : <>History: {monthly.coverage?.first_day || '—'} → {monthly.coverage?.last_day || '—'} ({monthly.coverage?.days || 0} days). </>}
-              Cells show <b>PU</b>, <b>PU/Hr</b> and <b>active hours</b>; Δ compares {prior || '—'} → {latest}.
+              Cells show <b>PU</b>, <b>PU/Hr</b> and <b>active hours</b>{workByKey ? <>, plus <b>orders · lines · picked eaches</b></> : null}; Δ compares {prior || '—'} → {latest}.
             </div>
             <table>
               <thead>
@@ -341,6 +358,14 @@ export default function Productivity() {
                               {Math.round(c.pu)}<span style={{ color: '#888' }}> PU</span>{' '}
                               <b style={{ color: '#1565c0' }}>{rate(c) ? (Math.round(rate(c) * 10) / 10) : '—'}</b><span style={{ color: '#888', fontSize: 11 }}>/hr</span>
                               <span style={{ color: '#888', fontSize: 11 }}> · {Math.round(c.ms / 360000) / 10} hrs</span>
+                              {(() => {
+                                const w = workByKey?.get(k)?.get(m);
+                                return w ? (
+                                  <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                                    <b>{w.o.toLocaleString()}</b> orders · <b>{w.l.toLocaleString()}</b> lines · <b>{Math.round(w.e).toLocaleString()}</b> eaches
+                                  </div>
+                                ) : null;
+                              })()}
                             </>) : <span style={{ color: '#ccc' }}>—</span>}
                           </td>
                         );
