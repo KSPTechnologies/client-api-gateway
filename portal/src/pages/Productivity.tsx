@@ -68,10 +68,16 @@ interface MonthRow { m: string; u: string; c: string; jt: string; tt: string; pu
 interface MonthlyData {
   environment: string;
   months: number;
+  range: { from: string; to: string } | null;
   coverage: { first_day: string | null; last_day: string | null; days: number } | null;
   rows: MonthRow[];
   error?: string;
 }
+
+const csvEsc = (v: string | number) => {
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 export default function Productivity() {
   const [data, setData] = useState<ProdData | null>(null);
@@ -82,18 +88,54 @@ export default function Productivity() {
   const [taskType, setTaskType] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [view, setView] = useState<'live' | 'monthly'>('live');
-  const [monthsBack, setMonthsBack] = useState(6);
+  const [monthsBack, setMonthsBack] = useState(6); // 0 = custom date range
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [monthly, setMonthly] = useState<MonthlyData | null>(null);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
 
+  const customRange = monthsBack === 0;
   const loadMonthly = () => {
+    if (customRange && !(fromDate && toDate && fromDate <= toDate)) return; // wait for a complete range
     setMonthlyLoading(true);
-    fetch(`/api/productivity-monthly?env=${envSel}&months=${monthsBack}`)
+    const q = customRange ? `from=${fromDate}&to=${toDate}` : `months=${monthsBack}`;
+    fetch(`/api/productivity-monthly?env=${envSel}&${q}`)
       .then((r) => r.json())
       .then((d) => { setMonthly(d as MonthlyData); setMonthlyLoading(false); });
   };
 
-  useEffect(() => { if (view === 'monthly') loadMonthly(); }, [view, monthsBack, envSel]);
+  useEffect(() => { if (view === 'monthly') loadMonthly(); }, [view, monthsBack, envSel, fromDate, toDate]);
+
+  // Full-grain CSV of what the monthly view has loaded (billing pivots from
+  // this): month, user, client, job type, task type, PU, eaches, tasks,
+  // hours, PU/hr. Respects the task-type filter; slice is display-only.
+  const exportMonthlyCsv = () => {
+    if (!monthly || monthly.error) return;
+    const rows = (taskType ? monthly.rows.filter((r) => r.tt === taskType) : monthly.rows)
+      .slice()
+      .sort((a, b) => a.m.localeCompare(b.m) || a.c.localeCompare(b.c) || a.u.localeCompare(b.u) || a.jt.localeCompare(b.jt) || a.tt.localeCompare(b.tt));
+    const lines = ['month,user,client,job_type,task_type,pickable_units,eaches,tasks,active_hours,pu_per_hr'];
+    for (const r of rows) {
+      const hrs = r.ms / 3_600_000;
+      lines.push([
+        r.m, r.u, r.c, r.jt, r.tt,
+        Math.round(r.pu * 100) / 100,
+        Math.round(r.e * 100) / 100,
+        r.t,
+        Math.round(hrs * 100) / 100,
+        hrs > 0 ? Math.round((r.pu / hrs) * 10) / 10 : '',
+      ].map(csvEsc).join(','));
+    }
+    const label = monthly.range
+      ? `${monthly.range.from}_${monthly.range.to}`
+      : rows.length ? `${rows[0].m}_${rows[rows.length - 1].m}` : 'empty';
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `productivity_${monthly.environment}_${label}${taskType ? `_${taskType.replace(/[^\w-]+/g, '-')}` : ''}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const load = () => {
     setLoading(true);
@@ -170,17 +212,32 @@ export default function Productivity() {
               <option value={7}>last 7 days</option>
             </select>
           ) : (
-            <select value={monthsBack} onChange={(e) => setMonthsBack(parseInt(e.target.value))}>
-              <option value={3}>last 3 months</option>
-              <option value={6}>last 6 months</option>
-              <option value={12}>last 12 months</option>
-            </select>
+            <>
+              <select value={monthsBack} onChange={(e) => setMonthsBack(parseInt(e.target.value))}>
+                <option value={3}>last 3 months</option>
+                <option value={6}>last 6 months</option>
+                <option value={12}>last 12 months</option>
+                <option value={0}>custom date range…</option>
+              </select>
+              {customRange && (
+                <>
+                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                  <span style={{ color: '#888' }}>→</span>
+                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                </>
+              )}
+            </>
           )}
           <select value={envSel} onChange={(e) => setEnvSel(e.target.value as 'production' | 'sandbox')}>
             <option value="production">production</option>
             <option value="sandbox">sandbox</option>
           </select>
-          <button className="btn btn-sm" onClick={load}>Refresh</button>
+          <button className="btn btn-sm" onClick={view === 'monthly' ? loadMonthly : load}>Refresh</button>
+          {view === 'monthly' && (
+            <button className="btn btn-sm" onClick={exportMonthlyCsv} disabled={monthlyLoading || !monthly || !!monthly.error}>
+              Export CSV
+            </button>
+          )}
         </div>
         {data && !data.error && (
           <div style={{ fontSize: 12, color: '#888' }}>
@@ -191,6 +248,9 @@ export default function Productivity() {
       </div>
 
       {view === 'monthly' ? (() => {
+        if (customRange && !(fromDate && toDate && fromDate <= toDate)) {
+          return <div className="empty-state"><p>Pick a from and to date to load the range.</p></div>;
+        }
         if (monthlyLoading || !monthly) return <div className="empty-state"><p>Loading monthly history…</p></div>;
         if (monthly.error) return <div className="empty-state"><p style={{ color: '#c62828' }}>{monthly.error}</p></div>;
         const mrows = taskType ? monthly.rows.filter((r) => r.tt === taskType) : monthly.rows;
@@ -213,7 +273,10 @@ export default function Productivity() {
         return (
           <div className="table-container">
             <div style={{ fontSize: 12, color: '#888', margin: '4px 0 8px' }}>
-              History: {monthly.coverage?.first_day || '—'} → {monthly.coverage?.last_day || '—'} ({monthly.coverage?.days || 0} days). Cells show <b>PU</b> and <b>PU/Hr</b>; Δ compares {prior || '—'} → {latest}.
+              {monthly.range
+                ? <>Range: <b>{monthly.range.from} → {monthly.range.to}</b> (months spanning the range show only the days inside it). </>
+                : <>History: {monthly.coverage?.first_day || '—'} → {monthly.coverage?.last_day || '—'} ({monthly.coverage?.days || 0} days). </>}
+              Cells show <b>PU</b> and <b>PU/Hr</b>; Δ compares {prior || '—'} → {latest}.
             </div>
             <table>
               <thead>
