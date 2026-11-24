@@ -597,8 +597,44 @@ ignored if supplied — results are always scoped to your account only.
 
 ### Example Response
 
-Returns the Logiwa carrier label list response: one entry per package/label
-with its tracking number, carrier, and rate.
+One entry per package/label. Key fields (abridged — the full Logiwa carrier
+label record is returned):
+
+```json
+{
+  "data": [
+    {
+      "shipmentOrderCode": "ORD-001",
+      "shipmentOrderStatusName": "Shipped",
+      "actualShipmentDate": "2026-11-05T17:41:15.09Z",
+      "carrierName": "UPS",
+      "shippingOptionName": "Ground",
+      "packageName": "SHB 6X8X10",
+      "trackingNumber": "1Z999AA10123456784",
+      "masterTrackingNumber": "1Z999AA10123456784",
+      "trackingUrl": "https://www.ups.com/track?...",
+      "weight": 274,
+      "weightUnitName": "Ounce",
+      "length": 6,
+      "width": 8,
+      "height": 10,
+      "dimensionUnitName": "Inch",
+      "shippingCost": 38.10,
+      "otherCost": 0,
+      "totalCost": 43.81,
+      "currencyCode": "USD",
+      "isReturnLabel": false,
+      "isCanceled": false,
+      "externalReference": null
+    }
+  ],
+  "totalCount": 1
+}
+```
+
+Pricing per package is `shippingCost` + `otherCost` = `totalCost` (the `Rate`
+filter key matches the shipping cost). An order shipped in multiple packages
+returns one entry per package, each with its own tracking number and cost.
 
 ---
 
