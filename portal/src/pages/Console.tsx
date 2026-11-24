@@ -24,6 +24,7 @@ const TEMPLATES: CallTemplate[] = [
   { label: 'List orders — changed since (incremental sync)', method: 'GET', path: '/v1/orders', query: 'UpdatedDateTime.bt=2026-10-01,2026-10-31' },
   { label: 'Get order', method: 'GET', path: '/v1/orders/{id}' },
   { label: 'Get tracking', method: 'GET', path: '/v1/orders/{id}/tracking' },
+  { label: 'Carrier label pricing (per package)', method: 'GET', path: '/v1/carrier-labels', query: 'ShipmentOrderCode.eq=ORD-001' },
   {
     label: 'Create order', method: 'POST', path: '/v1/orders', writes: 'order',
     body: {

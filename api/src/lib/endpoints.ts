@@ -35,6 +35,9 @@ export function resolveEndpointType(method: string, path: string): string | null
   if (path.startsWith('/v1/products')) {
     return method === 'POST' ? 'create_product' : 'list_products';
   }
+  if (path.startsWith('/v1/carrier-labels')) {
+    return 'carrier_labels'; // GET — per-package carrier label pricing
+  }
   return null; // unknown path — falls through to the router's 404
 }
 

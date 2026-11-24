@@ -46,6 +46,7 @@ If you exceed the limit, you'll receive a `429 Too Many Requests` response with 
 | GET | `/v1/orders` | List orders (paginated, filterable) |
 | GET | `/v1/orders/{orderId}` | Get full order details |
 | GET | `/v1/orders/{orderId}/tracking` | Get tracking information |
+| GET | `/v1/carrier-labels` | Per-package carrier label pricing (paginated, filterable) |
 | GET | `/v1/inventory` | List all inventory (paginated, filterable) |
 | GET | `/v1/inventory/availability` | Available-to-promise (sellable) per SKU |
 | POST | `/v1/inventory/query` | Query inventory by specific SKU(s) |
@@ -549,6 +550,55 @@ Retrieve tracking details for a shipped order. You can pass any of: the gateway 
 ```
 
 Tracking information is updated periodically. If the order hasn't shipped yet, `tracking` will be `null` and `shipments` will be an empty array. Orders that ship in multiple packages produce one entry per package in `shipments`, each with its own tracking number and item list.
+
+---
+
+## Carrier Label Pricing (per package)
+
+```
+GET /v1/carrier-labels?ShipmentOrderCode.eq=ORD-001
+```
+
+Returns the carrier labels generated for your shipments — one row per package —
+including the rate charged for each label. Use it to see pricing per package
+for a single order, or to look a label up by tracking number. Results are
+automatically scoped to your account.
+
+### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 1 | Page number (starts at 1) |
+| `size` | 50 | Results per page |
+
+### Filtering
+
+Same `Key.operator=value` filter syntax as List Orders. Supported keys:
+
+| Key | Type | Operators |
+|-----|------|-----------|
+| `ShipmentOrderCode` | string | `eq` |
+| `TrackingNumber` | string | `eq` |
+| `MasterTrackingNumber` | string | `eq` |
+| `Rate` | numeric | `eq`, `gt`, `gte`, `lt`, `lte` |
+| `Carrier` | numeric | `eq` |
+| `ExternalReference` | string | `eq` |
+
+```
+# All packages (with label rates) for one order
+GET /v1/carrier-labels?ShipmentOrderCode.eq=ORD-001
+
+# Look up a single label by tracking number
+GET /v1/carrier-labels?TrackingNumber.eq=1Z999AA10123456784
+```
+
+`ClientIdentifier` and `WarehouseIdentifier` are controlled by the gateway and
+ignored if supplied — results are always scoped to your account only.
+
+### Example Response
+
+Returns the Logiwa carrier label list response: one entry per package/label
+with its tracking number, carrier, and rate.
 
 ---
 

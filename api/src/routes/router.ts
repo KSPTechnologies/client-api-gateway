@@ -5,6 +5,7 @@ import { handleTracking } from './tracking';
 import { handleInventory } from './inventory';
 import { handlePurchaseOrders } from './purchase-orders';
 import { handleProducts } from './products';
+import { handleCarrierLabels } from './carrier-labels';
 import { handleWebhooks } from './webhooks';
 import { handleZohoWebhook } from './zoho';
 import { handleSpeedeeCarrier } from './speedee';
@@ -106,6 +107,8 @@ export async function handleRequest(
       response = await handlePurchaseOrders(request, env, tenant, path);
     } else if (path.startsWith('/v1/products')) {
       response = await handleProducts(request, env, tenant, path);
+    } else if (path.startsWith('/v1/carrier-labels')) {
+      response = await handleCarrierLabels(request, env, tenant, path);
     } else {
       response = notFound().toResponse();
     }

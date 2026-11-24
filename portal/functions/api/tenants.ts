@@ -7,6 +7,7 @@ const ENDPOINT_TYPES = [
   { type: 'create_order', label: 'Create Order', method: 'POST', path: '/v1/orders' },
   { type: 'get_order', label: 'Get Order Status', method: 'GET', path: '/v1/orders/:id' },
   { type: 'tracking', label: 'Get Tracking', method: 'GET', path: '/v1/orders/:id/tracking' },
+  { type: 'carrier_labels', label: 'Carrier Label Pricing (per package)', method: 'GET', path: '/v1/carrier-labels' },
   { type: 'inventory', label: 'Query Inventory', method: 'POST', path: '/v1/inventory/query' },
   { type: 'inventory_availability', label: 'Inventory Availability (ATP)', method: 'GET', path: '/v1/inventory/availability' },
   { type: 'create_po', label: 'Create Purchase Order', method: 'POST', path: '/v1/purchase-orders' },

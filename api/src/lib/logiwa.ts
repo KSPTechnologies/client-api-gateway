@@ -257,6 +257,20 @@ export async function listShipmentOrders(
   return logiwaFetch(creds, 'GET', path);
 }
 
+export async function listCarrierLabels(
+  creds: LogiwaCredentials,
+  index: number,
+  size: number,
+  filters?: Record<string, string>
+): Promise<{ data: any[]; totalCount: number }> {
+  let path = `/v3.1/ShipmentOrder/carrierlabel/list/i/${index}/s/${size}`;
+  if (filters) {
+    const params = new URLSearchParams(filters);
+    path += `?${params.toString()}`;
+  }
+  return logiwaFetch(creds, 'GET', path);
+}
+
 export async function cancelShipmentOrder(
   creds: LogiwaCredentials,
   identifier: string,
